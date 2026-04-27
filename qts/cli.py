@@ -19,7 +19,13 @@ _EXECUTION_LABELS = {"backtest": "回测", "sim": "模拟", "paper": "纸面"}
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="QTS 多决策系统演示")
-    parser.add_argument("--配置", "--config", dest="config_path", default=None, help="配置文件路径，默认读取当前目录 qts.config.json")
+    parser.add_argument(
+        "--配置",
+        "--config",
+        dest="config_path",
+        default=None,
+        help="配置文件路径，默认读取 configs/qts.config.json",
+    )
     parser.add_argument(
         "--生成默认配置",
         "--write-default-config",
@@ -58,7 +64,7 @@ def _print_run_summary(system, result, summary) -> None:
     print(summary.to_string(index=False))
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def run_cli(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
@@ -94,4 +100,4 @@ def run_demo_from_config(config: QTSConfig):
 
 
 if __name__ == "__main__":
-    main()
+    run_cli()

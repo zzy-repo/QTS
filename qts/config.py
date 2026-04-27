@@ -148,9 +148,16 @@ def default_qts_config() -> QTSConfig:
 
 def load_qts_config(path: str | Path | None = None) -> QTSConfig:
     if path is None:
-        candidate = Path("qts.config.json")
-        if candidate.exists():
-            path = candidate
+        repo_root = Path(__file__).resolve().parents[1]
+        candidates = [
+            repo_root / "configs" / "qts.config.json",
+            repo_root / "qts.config.json",
+            Path("qts.config.json"),
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                path = candidate
+                break
         else:
             return default_qts_config()
 
@@ -241,8 +248,13 @@ def build_system_from_config(config: QTSConfig):
     )
 
 
-def load_market_from_config(config: QTSConfig):
-    return load_market_panel(config.market.symbols, config.market.start_date, config.market.end_date)
+def load_market_from_config(config: QTSConfig, *, cache_root: Path | None = None):
+    return load_market_panel(
+        config.market.symbols,
+        config.market.start_date,
+        config.market.end_date,
+        cache_root=cache_root,
+    )
 
 
 def apply_overrides(

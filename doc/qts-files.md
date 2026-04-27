@@ -52,6 +52,18 @@
 
 命令行 demo 入口。
 
-## qts.config.json
+## configs/qts.config.json
 
 默认中文配置样例。
+
+## configs/backtest.json
+
+回测入口配置样例。
+
+## configs/close_report.json
+
+收盘决策入口配置样例。
+
+## configs/stock_selection.json
+
+选股入口配置样例。

@@ -30,3 +30,7 @@
 ## 输出原则
 
 1. 代码执行后的输出统一使用中文。
+
+## 实验启动
+
+1. 本仓库实验优先使用 `/Users/zzy/Develop/QTS/.venv/bin/python` 启动。
