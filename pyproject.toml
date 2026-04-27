@@ -1,0 +1,14 @@
+[project]
+name = "qts"
+version = "0.1.0"
+description = "Extensible multi-decision quant system"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "akshare>=1.18.54",
+    "h2>=4.3.0",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.13.1",
+    "pytest>=9.0.3",
+    "python-dotenv>=1.2.2",
+]
