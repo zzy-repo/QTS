@@ -397,3 +397,12 @@
 - 详情：`41-时间尺度切换/record.md`
 
 <!-- 41-时间尺度切换:end -->
+
+<!-- 44-增量同步与Parquet缓存:start -->
+## 44-增量同步与Parquet缓存
+
+- 状态：pass
+- 结论：增量同步、Parquet 缓存和断点状态链路可工作。
+- 详情：`44-增量同步与Parquet缓存/record.md`
+
+<!-- 44-增量同步与Parquet缓存:end -->

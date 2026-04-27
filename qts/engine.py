@@ -47,6 +47,11 @@ class MultiDecisionSystem:
     initial_cash: float = 1_000_000.0
     lot_size: int = 100
     capital_caps: dict[str, float] | None = None
+    optimizer_cap: float = 0.4
+    max_adv_pct: float = 0.02
+    slippage_base_bps: float = 1.0
+    slippage_participation_scale: float = 0.035
+    slippage_vol_scale: float = 0.15
 
     def run(self, market: MarketPanel) -> SystemRunResult:
         if not self.strategies:
@@ -71,8 +76,13 @@ class MultiDecisionSystem:
         allocation = allocate_capital(strategy_signals, total_cash=self.initial_cash, caps=self.capital_caps)
         alloc_map = allocation.allocation.set_index("strategy")["allocated_cash"].to_dict() if not allocation.allocation.empty else {}
 
-        optimizers = build_optimizers()
-        adapters = build_execution_adapters()
+        optimizers = build_optimizers(capped_cap=self.optimizer_cap)
+        adapters = build_execution_adapters(
+            slippage_base_bps=self.slippage_base_bps,
+            participation_scale=self.slippage_participation_scale,
+            vol_scale=self.slippage_vol_scale,
+            max_adv_pct=self.max_adv_pct,
+        )
         optimizer = optimizers.get(self.optimizer_mode)
         if optimizer is None:
             raise ValueError(f"unknown optimizer mode: {self.optimizer_mode}")
@@ -87,7 +97,7 @@ class MultiDecisionSystem:
             optimized = optimizer.run(signals)
             target = optimized[["date", "symbol", "weight"]] if not optimized.empty else pd.DataFrame(columns=["date", "symbol", "weight"])
             allocation_cash = float(alloc_map.get(spec.name, 0.0))
-            execution = executor.run(target, market)
+            execution = executor.run(target, market, initial_cash=self.initial_cash, lot_size=self.lot_size)
             strategy_runs.append(
                 StrategyRunResult(
                     name=spec.name,
@@ -129,6 +139,7 @@ class MultiDecisionSystem:
             "optimizer_mode": self.optimizer_mode,
             "execution_mode": self.execution_mode,
             "initial_cash": self.initial_cash,
+            "lot_size": self.lot_size,
             "allocation_rows": len(allocation.allocation),
             "risk_state_rows": len(risk_frame),
         }

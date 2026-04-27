@@ -54,9 +54,9 @@ def capped_optimizer(signals: pd.DataFrame, cap: float = 0.4) -> pd.DataFrame:
     return frame
 
 
-def build_optimizers() -> dict[str, OptimizerAdapter]:
+def build_optimizers(capped_cap: float = 0.4) -> dict[str, OptimizerAdapter]:
     return {
         "equal": OptimizerAdapter(name="equal", run=equal_weight_optimizer),
         "score": OptimizerAdapter(name="score", run=score_weight_optimizer),
-        "capped": OptimizerAdapter(name="capped", run=lambda signals: capped_optimizer(signals, cap=0.4)),
+        "capped": OptimizerAdapter(name="capped", run=lambda signals: capped_optimizer(signals, cap=capped_cap)),
     }

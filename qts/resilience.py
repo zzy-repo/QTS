@@ -13,18 +13,61 @@ from .execution import execute_rebalance, dynamic_slippage_cost
 @dataclass(frozen=True)
 class ExecutionAdapter:
     name: str
-    run: Callable[[pd.DataFrame, MarketPanel], ExecutionRun]
+    run: Callable[..., ExecutionRun]
 
 
 def fingerprint_frame(frame: pd.DataFrame) -> str:
     return sha256(frame.to_csv(index=True).encode("utf-8")).hexdigest()
 
 
-def build_execution_adapters() -> dict[str, ExecutionAdapter]:
+def build_execution_adapters(
+    *,
+    slippage_base_bps: float = 1.0,
+    participation_scale: float = 0.035,
+    vol_scale: float = 0.15,
+    max_adv_pct: float = 0.02,
+) -> dict[str, ExecutionAdapter]:
+    def slippage(trade_notional: float, adv_notional: float, volatility: float) -> float:
+        return dynamic_slippage_cost(
+            trade_notional,
+            adv_notional,
+            volatility,
+            base_bps=slippage_base_bps,
+            participation_scale=participation_scale,
+            vol_scale=vol_scale,
+        )
+
     return {
-        "backtest": ExecutionAdapter(name="backtest", run=lambda target, market: execute_rebalance(target, market, initial_cash=1_000_000.0, lot_size=100)),
-        "sim": ExecutionAdapter(name="sim", run=lambda target, market: execute_rebalance(target, market, initial_cash=1_000_000.0, lot_size=100, slippage_fn=dynamic_slippage_cost)),
-        "paper": ExecutionAdapter(name="paper", run=lambda target, market: execute_rebalance(target, market, initial_cash=1_000_000.0, lot_size=100, max_adv_pct=0.02, slippage_fn=dynamic_slippage_cost)),
+        "backtest": ExecutionAdapter(
+            name="backtest",
+            run=lambda target, market, *, initial_cash=1_000_000.0, lot_size=100, **_: execute_rebalance(
+                target,
+                market,
+                initial_cash=initial_cash,
+                lot_size=lot_size,
+            ),
+        ),
+        "sim": ExecutionAdapter(
+            name="sim",
+            run=lambda target, market, *, initial_cash=1_000_000.0, lot_size=100, **_: execute_rebalance(
+                target,
+                market,
+                initial_cash=initial_cash,
+                lot_size=lot_size,
+                slippage_fn=slippage,
+            ),
+        ),
+        "paper": ExecutionAdapter(
+            name="paper",
+            run=lambda target, market, *, initial_cash=1_000_000.0, lot_size=100, **_: execute_rebalance(
+                target,
+                market,
+                initial_cash=initial_cash,
+                lot_size=lot_size,
+                max_adv_pct=max_adv_pct,
+                slippage_fn=slippage,
+            ),
+        ),
     }
 
 
