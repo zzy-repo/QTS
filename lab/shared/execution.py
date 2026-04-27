@@ -9,6 +9,15 @@ import pandas as pd
 from .backtest import MarketPanel
 
 
+def _annualized_return(total_return: float, periods: int, trading_days_per_year: int = 252) -> float:
+    if periods <= 0:
+        return float("nan")
+    base = 1.0 + float(total_return)
+    if base <= 0:
+        return float("nan")
+    return float(base ** (trading_days_per_year / float(periods)) - 1.0)
+
+
 @dataclass(frozen=True)
 class ExecutionRun:
     orders: pd.DataFrame
@@ -178,4 +187,5 @@ def execute_rebalance(
     pnl = pd.DataFrame(pnl_rows)
     if not pnl.empty:
         pnl["cum_return"] = pnl["equity"] / float(initial_cash) - 1.0
+        pnl["annualized_return"] = _annualized_return(float(pnl["cum_return"].iloc[-1]), len(pnl))
     return ExecutionRun(orders=orders, holdings=holdings, pnl=pnl)

@@ -11,6 +11,8 @@ from .models import ExecutionRun, MarketPanel, StrategyInput
 from .optimization import build_optimizers
 from .resilience import build_execution_adapters
 
+TRADING_DAYS_PER_YEAR = 252
+
 
 @dataclass(frozen=True)
 class StrategySpec:
@@ -37,6 +39,15 @@ class SystemRunResult:
     aggregate_pnl: pd.DataFrame
     aggregate_equity: pd.DataFrame
     snapshot: dict[str, object] = field(default_factory=dict)
+
+
+def annualized_return(total_return: float, periods: int, trading_days_per_year: int = TRADING_DAYS_PER_YEAR) -> float:
+    if periods <= 0:
+        return float("nan")
+    base = 1.0 + float(total_return)
+    if base <= 0:
+        return float("nan")
+    return float(base ** (trading_days_per_year / float(periods)) - 1.0)
 
 
 @dataclass
@@ -129,8 +140,14 @@ class MultiDecisionSystem:
             aggregate_equity = pd.DataFrame(equity_rows)
             aggregate_pnl["equity"] = aggregate_equity["equity"].values
             aggregate_pnl["cum_return"] = aggregate_pnl["equity"] / float(self.initial_cash) - 1.0
+            aggregate_pnl["annualized_return"] = annualized_return(
+                float(aggregate_pnl["cum_return"].iloc[-1]),
+                len(aggregate_pnl),
+            )
         else:
-            aggregate_pnl = pd.DataFrame(columns=["date", "gross_return", "allocation_weight", "equity", "cum_return"])
+            aggregate_pnl = pd.DataFrame(
+                columns=["date", "gross_return", "allocation_weight", "equity", "cum_return", "annualized_return"]
+            )
             aggregate_equity = pd.DataFrame(columns=["date", "equity"])
 
         risk_frame = risk_state_machine(aggregate_equity["equity"] if not aggregate_equity.empty else pd.Series(dtype=float))
@@ -156,8 +173,11 @@ class MultiDecisionSystem:
 def summarize_system_run(result: SystemRunResult) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     final_equity = float(result.aggregate_equity["equity"].iloc[-1]) if not result.aggregate_equity.empty else 0.0
+    aggregate_total_return = float(result.aggregate_pnl["cum_return"].iloc[-1]) if not result.aggregate_pnl.empty else 0.0
+    aggregate_annualized_return = annualized_return(aggregate_total_return, len(result.aggregate_pnl))
     for run in result.strategy_runs:
         pnl = run.execution.pnl
+        total_return = float(pnl["cum_return"].iloc[-1]) if not pnl.empty and "cum_return" in pnl.columns else 0.0
         rows.append(
             {
                 "strategy": run.name,
@@ -165,6 +185,7 @@ def summarize_system_run(result: SystemRunResult) -> pd.DataFrame:
                 "signal_rows": len(run.signals),
                 "pnl_rows": len(pnl),
                 "final_equity": float(pnl["equity"].iloc[-1]) if not pnl.empty else 0.0,
+                "annualized_return": annualized_return(total_return, len(pnl)),
             }
         )
     rows.append(
@@ -174,6 +195,7 @@ def summarize_system_run(result: SystemRunResult) -> pd.DataFrame:
             "signal_rows": len(result.strategy_signals),
             "pnl_rows": len(result.aggregate_pnl),
             "final_equity": final_equity,
+            "annualized_return": aggregate_annualized_return,
         }
     )
     return pd.DataFrame(rows)

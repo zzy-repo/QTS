@@ -303,6 +303,7 @@ def compute_metrics(returns: pd.Series) -> pd.DataFrame:
                     "sharpe": np.nan,
                     "mdd": np.nan,
                     "volatility": np.nan,
+                    "annualized_return": np.nan,
                 }
             ]
         )
@@ -312,12 +313,15 @@ def compute_metrics(returns: pd.Series) -> pd.DataFrame:
     equity = (1.0 + clean).cumprod()
     drawdown = equity / equity.cummax() - 1.0
     mdd = float(drawdown.min())
+    total_return = float(equity.iloc[-1] - 1.0)
+    annualized = float((1.0 + total_return) ** (252 / len(clean)) - 1.0) if len(clean) else np.nan
     return pd.DataFrame(
         [
             {
                 "sharpe": sharpe,
                 "mdd": mdd,
                 "volatility": vol,
+                "annualized_return": annualized,
             }
         ]
     )

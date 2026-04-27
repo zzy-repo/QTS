@@ -51,7 +51,10 @@ def _print_run_summary(system, result, summary) -> None:
         f"优化模式={_OPTIMIZER_LABELS.get(system.optimizer_mode, system.optimizer_mode)}"
     )
     print(f"策略数={len(system.strategies)} 分配行数={len(result.allocation.allocation)}")
-    print(f"汇总最终权益={float(result.aggregate_equity['equity'].iloc[-1]) if not result.aggregate_equity.empty else 0.0:.2f}")
+    aggregate_row = summary.loc[summary["strategy"].eq("aggregate")].iloc[0] if not summary.empty else None
+    final_equity = float(result.aggregate_equity["equity"].iloc[-1]) if not result.aggregate_equity.empty else 0.0
+    annualized_return = float(aggregate_row["annualized_return"]) if aggregate_row is not None else float("nan")
+    print(f"汇总最终权益={final_equity:.2f} 汇总年化收益={annualized_return:.2%}")
     print(summary.to_string(index=False))
 
 
