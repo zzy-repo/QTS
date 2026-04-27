@@ -36,12 +36,6 @@ def resolve_entry_config_path(default_path: Path, config_path: str | Path | None
     nested_default = REPO_ROOT / "configs" / default_path.name
     if nested_default.exists():
         return nested_default
-    fallback = REPO_ROOT / "qts.config.json"
-    if fallback.exists():
-        return fallback
-    nested_fallback = REPO_ROOT / "configs" / "qts.config.json"
-    if nested_fallback.exists():
-        return nested_fallback
     return None
 
 

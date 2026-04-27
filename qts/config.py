@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from .data_source import DEFAULT_UNIVERSE, load_market_panel
-from .engine import StrategySpec
 from .models import StrategyInput
 from .strategy import momentum_signal, trend_follow_signal
+from .specs import StrategySpec
 
 STRATEGY_KIND_ALIASES = {
     "momentum": "momentum",
@@ -151,8 +151,6 @@ def load_qts_config(path: str | Path | None = None) -> QTSConfig:
         repo_root = Path(__file__).resolve().parents[1]
         candidates = [
             repo_root / "configs" / "qts.config.json",
-            repo_root / "qts.config.json",
-            Path("qts.config.json"),
         ]
         for candidate in candidates:
             if candidate.exists():

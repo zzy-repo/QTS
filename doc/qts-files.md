@@ -44,6 +44,22 @@
 
 多决策系统编排。
 
+## qts/specs.py
+
+策略入口规范定义。
+
+## qts/pipeline.py
+
+信号、优化、执行、组合管理的拆分式编排。
+
+## qts/results.py
+
+系统运行结果与收益年化工具。
+
+## qts/reporter.py
+
+系统结果汇总报表。
+
 ## qts/presets.py
 
 默认策略与默认系统组装。

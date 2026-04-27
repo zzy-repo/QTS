@@ -5,13 +5,12 @@ from pathlib import Path
 from typing import Sequence
 
 from .config import (
-    QTSConfig,
     apply_overrides,
     default_qts_config,
     load_qts_config,
     save_qts_config,
 )
-from .engine import summarize_system_run
+from .reporter import summarize_system_run
 
 _OPTIMIZER_LABELS = {"score": "打分", "equal": "等权", "capped": "截断"}
 _EXECUTION_LABELS = {"backtest": "回测", "sim": "模拟", "paper": "纸面"}
