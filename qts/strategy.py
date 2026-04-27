@@ -7,6 +7,7 @@ from .models import StrategyInput
 
 
 def _serialize_ts(value: object) -> str:
+    """把时间值序列化为字符串。"""
     ts = pd.Timestamp(value)
     if ts.time() == pd.Timestamp(ts.date()).time():
         return ts.strftime("%Y-%m-%d")
@@ -14,6 +15,7 @@ def _serialize_ts(value: object) -> str:
 
 
 def momentum_signal(data: StrategyInput) -> pd.DataFrame:
+    """生成动量策略信号。"""
     close = data.close.copy()
     momentum = close.pct_change(data.lookback)
     rows: list[dict[str, object]] = []
@@ -28,6 +30,7 @@ def momentum_signal(data: StrategyInput) -> pd.DataFrame:
 
 
 def trend_follow_signal(data: StrategyInput) -> pd.DataFrame:
+    """生成趋势跟随策略信号。"""
     close = data.close.copy()
     short = close.pct_change(max(2, data.lookback // 2))
     long = close.pct_change(data.lookback)
@@ -47,6 +50,7 @@ def trend_follow_signal(data: StrategyInput) -> pd.DataFrame:
 
 
 def validate_strategy_output(signal: pd.DataFrame) -> list[str]:
+    """校验策略输出的基础格式。"""
     issues: list[str] = []
     required = {"date", "symbol", "weight"}
     if not required.issubset(signal.columns):

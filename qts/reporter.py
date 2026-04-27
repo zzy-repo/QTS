@@ -9,11 +9,15 @@ from .results import SystemRunResult, annualized_return
 
 @dataclass(frozen=True)
 class Reporter:
+    """把系统结果汇总成报表。"""
+
     def summarize(self, result: SystemRunResult) -> pd.DataFrame:
+        """生成系统汇总表。"""
         return summarize_system_run(result)
 
 
 def summarize_system_run(result: SystemRunResult) -> pd.DataFrame:
+    """汇总系统运行结果。"""
     rows: list[dict[str, object]] = []
     final_equity = float(result.aggregate_equity["equity"].iloc[-1]) if not result.aggregate_equity.empty else 0.0
     aggregate_total_return = float(result.aggregate_pnl["cum_return"].iloc[-1]) if not result.aggregate_pnl.empty else 0.0
@@ -42,4 +46,3 @@ def summarize_system_run(result: SystemRunResult) -> pd.DataFrame:
         }
     )
     return pd.DataFrame(rows)
-

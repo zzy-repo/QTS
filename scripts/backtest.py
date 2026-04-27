@@ -7,6 +7,7 @@ from _entry_common import save_frame, save_text
 
 
 def run_backtest_script() -> None:
+    """运行回测脚本入口。"""
     artifact_dir = ROOT / "artifacts" / "backtest"
     run = run_backtest_entry(cache_root=artifact_dir / "cache")
     save_frame(run.signals, artifact_dir / "signals.csv")

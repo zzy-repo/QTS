@@ -37,6 +37,7 @@ EXECUTION_MODE_ALIASES = {
 
 
 def _pick(mapping: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """从候选键中取配置值。"""
     for key in keys:
         if key in mapping:
             return mapping[key]
@@ -44,12 +45,15 @@ def _pick(mapping: dict[str, Any], *keys: str, default: Any = None) -> Any:
 
 
 def _alias(mapping: dict[str, str], value: Any, default: str) -> str:
+    """把配置值映射到内部标准名。"""
     text = str(value)
     return mapping.get(text, mapping.get(text.lower(), default))
 
 
 @dataclass(frozen=True)
 class MarketConfig:
+    """描述市场数据配置。"""
+
     symbols: list[str]
     start_date: str
     end_date: str
@@ -64,6 +68,8 @@ class MarketConfig:
 
 @dataclass(frozen=True)
 class StrategyConfig:
+    """描述单个策略配置。"""
+
     name: str
     kind: str
     lookback: int = 20
@@ -80,6 +86,8 @@ class StrategyConfig:
 
 @dataclass(frozen=True)
 class SystemConfig:
+    """描述系统运行配置。"""
+
     optimizer_mode: str = "score"
     execution_mode: str = "backtest"
     initial_cash: float = 1_000_000.0
@@ -108,6 +116,8 @@ class SystemConfig:
 
 @dataclass(frozen=True)
 class QTSConfig:
+    """描述完整系统配置。"""
+
     market: MarketConfig
     system: SystemConfig
     strategies: list[StrategyConfig]
@@ -121,6 +131,7 @@ class QTSConfig:
 
 
 def default_qts_config() -> QTSConfig:
+    """生成默认系统配置。"""
     return QTSConfig(
         market=MarketConfig(
             symbols=list(DEFAULT_UNIVERSE),
@@ -147,6 +158,7 @@ def default_qts_config() -> QTSConfig:
 
 
 def load_qts_config(path: str | Path | None = None) -> QTSConfig:
+    """加载系统配置。"""
     if path is None:
         repo_root = Path(__file__).resolve().parents[1]
         candidates = [
@@ -205,12 +217,14 @@ def load_qts_config(path: str | Path | None = None) -> QTSConfig:
 
 
 def save_qts_config(config: QTSConfig, path: str | Path) -> Path:
+    """保存系统配置。"""
     target = Path(path)
     target.write_text(json.dumps(config.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     return target
 
 
 def build_strategies_from_config(config: QTSConfig):
+    """按配置构建策略列表。"""
     strategies = []
     for item in config.strategies:
         if item.kind == "momentum":
@@ -229,6 +243,7 @@ def build_strategies_from_config(config: QTSConfig):
 
 
 def build_system_from_config(config: QTSConfig):
+    """按配置构建系统门面。"""
     from .engine import MultiDecisionSystem
 
     return MultiDecisionSystem(
@@ -247,6 +262,7 @@ def build_system_from_config(config: QTSConfig):
 
 
 def load_market_from_config(config: QTSConfig, *, cache_root: Path | None = None):
+    """按配置加载市场面板。"""
     return load_market_panel(
         config.market.symbols,
         config.market.start_date,
@@ -266,6 +282,7 @@ def apply_overrides(
     optimizer_mode: str | None = None,
     execution_mode: str | None = None,
 ) -> QTSConfig:
+    """用命令行参数覆盖配置。"""
     market = config.market
     system = config.system
     if start_date is not None:

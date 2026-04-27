@@ -6,6 +6,7 @@ SIGNAL_COLUMNS = ["date", "symbol", "rank", "score", "weight"]
 
 
 def normalize_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """标准化信号字段。"""
     normalized = frame.copy()
     for column in SIGNAL_COLUMNS:
         if column not in normalized.columns:
@@ -20,6 +21,7 @@ def normalize_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def latest_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """提取最新交易日信号。"""
     normalized = normalize_signal_frame(frame)
     if normalized.empty:
         return normalized
@@ -28,6 +30,7 @@ def latest_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_report(frame: pd.DataFrame, kind: str) -> pd.DataFrame:
+    """生成指定类型的报表。"""
     normalized_kind = kind.strip().lower()
     if normalized_kind == "backtest":
         return _build_backtest_report(frame)
@@ -39,6 +42,7 @@ def build_report(frame: pd.DataFrame, kind: str) -> pd.DataFrame:
 
 
 def _build_backtest_report(frame: pd.DataFrame) -> pd.DataFrame:
+    """生成回测报表。"""
     normalized = normalize_signal_frame(frame)
     if normalized.empty:
         return pd.DataFrame(columns=["section", "date", "signal_count", "avg_score", "avg_weight", "gross_return", "equity", "cum_return"])
@@ -85,6 +89,7 @@ def _build_backtest_report(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _build_close_report(frame: pd.DataFrame) -> pd.DataFrame:
+    """生成收盘决策报表。"""
     latest = latest_signal_frame(frame)
     if latest.empty:
         return pd.DataFrame(columns=["date", "symbol", "rank", "score", "weight", "decision"])
@@ -107,10 +112,10 @@ def _build_close_report(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _build_selection_report(frame: pd.DataFrame) -> pd.DataFrame:
+    """生成选股报表。"""
     latest = latest_signal_frame(frame)
     if latest.empty:
         return pd.DataFrame(columns=["date", "symbol", "rank", "score", "weight", "selected"])
     latest = latest.copy().sort_values(["rank", "symbol"]).reset_index(drop=True)
     latest["selected"] = True
     return latest[["date", "symbol", "rank", "score", "weight", "selected"]]
-

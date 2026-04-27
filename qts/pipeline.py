@@ -16,9 +16,12 @@ from .specs import StrategySpec
 
 @dataclass(frozen=True)
 class SignalGenerator:
+    """生成策略信号。"""
+
     strategies: list[StrategySpec]
 
     def generate(self, market: MarketPanel) -> pd.DataFrame:
+        """把市场数据转换为统一信号表。"""
         frames: list[pd.DataFrame] = []
         for spec in self.strategies:
             data = StrategyInput(
@@ -38,10 +41,13 @@ class SignalGenerator:
 
 @dataclass(frozen=True)
 class Optimizer:
+    """把信号转换成目标权重。"""
+
     mode: str = "score"
     capped_cap: float = 0.4
 
     def optimize(self, signals: pd.DataFrame) -> pd.DataFrame:
+        """执行选定的优化器。"""
         optimizer = build_optimizers(capped_cap=self.capped_cap).get(self.mode)
         if optimizer is None:
             raise ValueError(f"unknown optimizer mode: {self.mode}")
@@ -50,6 +56,8 @@ class Optimizer:
 
 @dataclass(frozen=True)
 class Executor:
+    """把目标权重执行成成交结果。"""
+
     mode: str = "backtest"
     slippage_base_bps: float = 1.0
     participation_scale: float = 0.035
@@ -64,6 +72,7 @@ class Executor:
         initial_cash: float = 1_000_000.0,
         lot_size: int = 100,
     ) -> ExecutionRun:
+        """执行目标组合。"""
         adapter = build_execution_adapters(
             slippage_base_bps=self.slippage_base_bps,
             participation_scale=self.participation_scale,
@@ -77,6 +86,8 @@ class Executor:
 
 @dataclass(frozen=True)
 class PortfolioManager:
+    """负责资金分配、组合执行和结果汇总。"""
+
     initial_cash: float = 1_000_000.0
     lot_size: int = 100
     capital_caps: dict[str, float] | None = None
@@ -90,6 +101,7 @@ class PortfolioManager:
         optimizer: Optimizer,
         executor: Executor,
     ) -> SystemRunResult:
+        """生成完整系统运行结果。"""
         allocation = allocate_capital(strategy_signals, total_cash=self.initial_cash, caps=self.capital_caps)
         alloc_map = allocation.allocation.set_index("strategy")["allocated_cash"].to_dict() if not allocation.allocation.empty else {}
 
@@ -164,12 +176,15 @@ class PortfolioManager:
 
 @dataclass(frozen=True)
 class SystemPipeline:
+    """编排信号、优化、执行和组合管理。"""
+
     signal_generator: SignalGenerator
     optimizer: Optimizer
     executor: Executor
     portfolio_manager: PortfolioManager
 
     def run(self, market: MarketPanel) -> SystemRunResult:
+        """运行完整处理流水线。"""
         strategy_signals = self.signal_generator.generate(market)
         return self.portfolio_manager.build(
             strategies=self.signal_generator.strategies,
@@ -178,4 +193,3 @@ class SystemPipeline:
             optimizer=self.optimizer,
             executor=self.executor,
         )
-

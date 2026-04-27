@@ -19,6 +19,8 @@ DEFAULT_STOCK_SELECTION_CONFIG = CONFIG_DIR / "stock_selection.json"
 
 @dataclass(frozen=True)
 class EntryRun:
+    """保存单入口运行结果。"""
+
     name: str
     config_path: Path | None
     config: QTSConfig
@@ -29,6 +31,7 @@ class EntryRun:
 
 
 def resolve_entry_config_path(default_path: Path, config_path: str | Path | None = None) -> Path | None:
+    """解析入口使用的配置路径。"""
     if config_path is not None:
         return Path(config_path)
     if default_path.exists():
@@ -40,6 +43,7 @@ def resolve_entry_config_path(default_path: Path, config_path: str | Path | None
 
 
 def _load_config(default_path: Path, config_path: str | Path | None = None) -> tuple[Path | None, QTSConfig]:
+    """加载入口配置。"""
     resolved = resolve_entry_config_path(default_path, config_path)
     config = load_qts_config(resolved)
     return resolved, config
@@ -54,6 +58,7 @@ def _run_entry(
     report_kind: str,
     latest_only: bool = False,
 ) -> EntryRun:
+    """运行指定入口并生成报表。"""
     resolved, config = _load_config(default_path, config_path)
     market = load_market_from_config(config, cache_root=cache_root)
     system = build_system_from_config(config)
@@ -75,6 +80,7 @@ def run_backtest_entry(
     *,
     cache_root: Path | None = None,
 ) -> EntryRun:
+    """运行回测入口。"""
     return _run_entry(
         name="backtest",
         default_path=DEFAULT_BACKTEST_CONFIG,
@@ -89,6 +95,7 @@ def run_close_report_entry(
     *,
     cache_root: Path | None = None,
 ) -> EntryRun:
+    """运行收盘决策入口。"""
     return _run_entry(
         name="close_report",
         default_path=DEFAULT_CLOSE_REPORT_CONFIG,
@@ -104,6 +111,7 @@ def run_stock_selection_entry(
     *,
     cache_root: Path | None = None,
 ) -> EntryRun:
+    """运行选股入口。"""
     return _run_entry(
         name="stock_selection",
         default_path=DEFAULT_STOCK_SELECTION_CONFIG,

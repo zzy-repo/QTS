@@ -9,6 +9,7 @@ from .models import ExecutionRun, MarketPanel
 
 
 def _annualized_return(total_return: float, periods: int, trading_days_per_year: int = 252) -> float:
+    """计算执行结果的年化收益。"""
     if periods <= 0:
         return float("nan")
     base = 1.0 + float(total_return)
@@ -25,6 +26,7 @@ def dynamic_slippage_cost(
     participation_scale: float = 0.035,
     vol_scale: float = 0.15,
 ) -> float:
+    """估算动态滑点成本。"""
     if trade_notional <= 0 or adv_notional <= 0:
         return 0.0
     participation = trade_notional / adv_notional
@@ -43,6 +45,7 @@ def execute_rebalance(
     slippage_fn: Callable[[float, float, float], float] | None = None,
     tradable_mask: pd.DataFrame | None = None,
 ) -> ExecutionRun:
+    """执行目标持仓再平衡。"""
     target_holdings = target_holdings.copy()
     target_holdings["date"] = pd.to_datetime(target_holdings["date"], format="mixed")
     dates = sorted(target_holdings["date"].unique())

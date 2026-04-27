@@ -53,6 +53,8 @@ _CACHE_COLUMNS = ["date", "symbol", "close", "volume", "amount"]
 
 @dataclass(frozen=True)
 class SyncResult:
+    """描述单个标的同步结果。"""
+
     frame: pd.DataFrame
     cache_frame: pd.DataFrame
     cache_path: Path
@@ -64,6 +66,7 @@ class SyncResult:
 
 
 def fetch_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """获取单标的历史日线。"""
     url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     params = {
         "fields1": "f1,f2,f3,f4,f5,f6",
@@ -101,6 +104,7 @@ def fetch_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataF
 
 
 def normalize_daily_history(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """标准化原始日线字段。"""
     normalized = df.rename(columns=RAW_COLUMN_MAP).copy()
     if "date" not in normalized.columns and "时间" in normalized.columns:
         normalized = normalized.rename(columns={"时间": "date"})
@@ -113,11 +117,13 @@ def normalize_daily_history(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
 
 def save_csv(df: pd.DataFrame, path: Path) -> None:
+    """保存 CSV 文件。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
 
 
 def quality_checks(df: pd.DataFrame) -> list[str]:
+    """执行基础质量检查。"""
     issues: list[str] = []
     if df.empty:
         issues.append("dataframe is empty")
@@ -149,6 +155,7 @@ def quality_checks(df: pd.DataFrame) -> list[str]:
 
 
 def _build_builtin_seed(start_date: str, end_date: str) -> pd.DataFrame:
+    """生成内置种子数据。"""
     dates = pd.bdate_range(pd.to_datetime(start_date), pd.to_datetime(end_date))
     idx = np.arange(len(dates), dtype=float)
     base_close = 100.0 + idx * 0.15 + np.sin(idx / 3.0) * 0.8
@@ -165,6 +172,7 @@ def _build_builtin_seed(start_date: str, end_date: str) -> pd.DataFrame:
 
 
 def _build_synthetic_series(base: pd.DataFrame, symbols: list[str]) -> MarketPanel:
+    """基于种子数据生成合成市场面板。"""
     idx = np.arange(len(base), dtype=float)
     base_close = base["close"].to_numpy(dtype=float)
     base_volume = pd.to_numeric(base["volume"], errors="coerce").ffill().fillna(1_000_000).to_numpy(dtype=float)
@@ -196,6 +204,7 @@ def _build_synthetic_series(base: pd.DataFrame, symbols: list[str]) -> MarketPan
 
 
 def _default_cache_root() -> Path:
+    """返回默认缓存根目录。"""
     override = os.getenv(_CACHE_ENV_VAR)
     if override:
         return Path(override).expanduser()
@@ -203,26 +212,32 @@ def _default_cache_root() -> Path:
 
 
 def _state_path(cache_root: Path) -> Path:
+    """返回状态文件路径。"""
     return cache_root / _STATE_FILENAME
 
 
 def _symbol_cache_path(cache_root: Path, symbol: str) -> Path:
+    """返回单标的缓存路径。"""
     return cache_root / "symbols" / f"{symbol}.parquet"
 
 
 def _parse_date(value: str | pd.Timestamp) -> pd.Timestamp:
+    """把日期值转为归一化时间戳。"""
     return pd.to_datetime(value).normalize()
 
 
 def _format_date(value: pd.Timestamp) -> str:
+    """把日期格式化为标准字符串。"""
     return pd.Timestamp(value).normalize().strftime("%Y-%m-%d")
 
 
 def _compact_date(value: pd.Timestamp) -> str:
+    """把日期格式化为紧凑字符串。"""
     return pd.Timestamp(value).normalize().strftime("%Y%m%d")
 
 
 def _ensure_history_frame(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """把历史数据整理成缓存帧。"""
     frame = df.copy()
     if "date" not in frame.columns:
         if isinstance(frame.index, pd.DatetimeIndex) or frame.index.name == "date":
@@ -245,6 +260,7 @@ def _ensure_history_frame(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
 
 def _read_cache_frame(path: Path) -> pd.DataFrame:
+    """读取缓存数据帧。"""
     if not path.exists():
         return pd.DataFrame(columns=_CACHE_COLUMNS)
     try:
@@ -254,6 +270,7 @@ def _read_cache_frame(path: Path) -> pd.DataFrame:
 
 
 def _write_cache_frame(df: pd.DataFrame, path: Path) -> None:
+    """写入缓存数据帧。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f"{path.name}.tmp")
     try:
@@ -264,6 +281,7 @@ def _write_cache_frame(df: pd.DataFrame, path: Path) -> None:
 
 
 def _load_state(path: Path) -> dict[str, object]:
+    """读取缓存状态。"""
     if not path.exists():
         return {"version": 1, "updated_at": None, "symbols": {}}
     try:
@@ -279,6 +297,7 @@ def _load_state(path: Path) -> dict[str, object]:
 
 
 def _write_state(path: Path, payload: dict[str, object]) -> None:
+    """写入缓存状态。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f"{path.name}.tmp")
     tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -291,6 +310,7 @@ def _missing_ranges(
     cached_start: pd.Timestamp | None,
     cached_end: pd.Timestamp | None,
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """计算还需要补拉的日期区间。"""
     if cached_start is None or cached_end is None:
         return [(requested_start, requested_end)]
 
@@ -305,6 +325,7 @@ def _missing_ranges(
 
 
 def _merge_history_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """合并多段缓存历史。"""
     if not frames:
         return pd.DataFrame(columns=_CACHE_COLUMNS)
     merged = pd.concat(frames, ignore_index=True)
@@ -330,6 +351,7 @@ def sync_symbol_history(
     read_cache: Callable[[Path], pd.DataFrame] = _read_cache_frame,
     write_cache: Callable[[pd.DataFrame, Path], None] = _write_cache_frame,
 ) -> SyncResult:
+    """同步单标的历史数据并更新缓存。"""
     requested_start = _parse_date(start_date)
     requested_end = _parse_date(end_date)
     if requested_start > requested_end:
@@ -406,6 +428,7 @@ def sync_symbol_history(
 
 
 def _build_market_panel(frames: list[pd.DataFrame], source_mode: str) -> MarketPanel:
+    """把多标的历史拼成市场面板。"""
     combined = pd.concat(frames, ignore_index=True)
     combined["date"] = pd.to_datetime(combined["date"])
     close = combined.pivot(index="date", columns="symbol", values="close").sort_index().ffill().dropna(how="all")
@@ -421,6 +444,7 @@ def load_market_panel(
     *,
     cache_root: Path | None = None,
 ) -> MarketPanel:
+    """加载多标的市场面板。"""
     sync_results: list[SyncResult] = []
     for symbol in symbols:
         try:

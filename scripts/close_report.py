@@ -7,6 +7,7 @@ from _entry_common import save_frame, save_text
 
 
 def run_close_report_script() -> None:
+    """运行收盘决策脚本入口。"""
     artifact_dir = ROOT / "artifacts" / "close_report"
     run = run_close_report_entry(cache_root=artifact_dir / "cache")
     save_frame(run.signals, artifact_dir / "signals.csv")

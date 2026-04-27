@@ -12,6 +12,7 @@ def risk_state_machine(
     vol_warn: float = 0.18,
     vol_halt: float = 0.30,
 ) -> pd.DataFrame:
+    """根据权益曲线生成风险状态。"""
     clean = pd.Series(equity).astype(float).dropna()
     if clean.empty:
         return pd.DataFrame(columns=["equity", "rolling_return", "rolling_vol", "drawdown", "state"])

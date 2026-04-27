@@ -8,11 +8,14 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class OptimizerAdapter:
+    """描述一个优化器实现。"""
+
     name: str
     run: Callable[[pd.DataFrame], pd.DataFrame]
 
 
 def equal_weight_optimizer(signals: pd.DataFrame) -> pd.DataFrame:
+    """生成等权目标权重。"""
     if signals.empty:
         return pd.DataFrame(columns=["date", "symbol", "weight", "optimizer"])
     rows: list[dict[str, object]] = []
@@ -27,6 +30,7 @@ def equal_weight_optimizer(signals: pd.DataFrame) -> pd.DataFrame:
 
 
 def score_weight_optimizer(signals: pd.DataFrame) -> pd.DataFrame:
+    """按信号得分生成目标权重。"""
     if signals.empty:
         return pd.DataFrame(columns=["date", "symbol", "weight", "optimizer"])
     rows: list[dict[str, object]] = []
@@ -44,6 +48,7 @@ def score_weight_optimizer(signals: pd.DataFrame) -> pd.DataFrame:
 
 
 def capped_optimizer(signals: pd.DataFrame, cap: float = 0.4) -> pd.DataFrame:
+    """生成带权重上限的目标权重。"""
     frame = score_weight_optimizer(signals)
     if frame.empty:
         return frame
@@ -55,6 +60,7 @@ def capped_optimizer(signals: pd.DataFrame, cap: float = 0.4) -> pd.DataFrame:
 
 
 def build_optimizers(capped_cap: float = 0.4) -> dict[str, OptimizerAdapter]:
+    """构建可用优化器集合。"""
     return {
         "equal": OptimizerAdapter(name="equal", run=equal_weight_optimizer),
         "score": OptimizerAdapter(name="score", run=score_weight_optimizer),

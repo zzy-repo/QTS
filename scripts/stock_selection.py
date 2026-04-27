@@ -7,6 +7,7 @@ from _entry_common import save_frame, save_text
 
 
 def run_stock_selection_script() -> None:
+    """运行选股脚本入口。"""
     artifact_dir = ROOT / "artifacts" / "stock_selection"
     run = run_stock_selection_entry(cache_root=artifact_dir / "cache")
     save_frame(run.signals, artifact_dir / "signals.csv")

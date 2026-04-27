@@ -34,3 +34,22 @@
 ## 实验启动
 
 1. 本仓库实验优先使用 `/Users/zzy/Develop/QTS/.venv/bin/python` 启动。
+
+## 注释原则
+
+1. 每一个函数和类都必须有函数级注释。
+2. 注释只说明这个函数或类是做什么的，不解释传参、返回值和实现细节。
+3. 注释保持简短，避免重复代码本身已经表达的信息。
+
+示例：
+
+```python
+def build_report(frame: pd.DataFrame, kind: str) -> pd.DataFrame:
+    """生成统一格式的报表。"""
+    ...
+
+
+class PortfolioManager:
+    """负责组合层的资金分配与结果汇总。"""
+    ...
+```

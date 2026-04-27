@@ -17,6 +17,7 @@ _EXECUTION_LABELS = {"backtest": "回测", "sim": "模拟", "paper": "纸面"}
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """构建命令行解析器。"""
     parser = argparse.ArgumentParser(description="QTS 多决策系统演示")
     parser.add_argument(
         "--配置",
@@ -50,6 +51,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _print_run_summary(system, result, summary) -> None:
+    """打印系统运行摘要。"""
     print("QTS 多决策系统演示")
     print(
         f"执行模式={_EXECUTION_LABELS.get(system.execution_mode, system.execution_mode)} "
@@ -64,6 +66,7 @@ def _print_run_summary(system, result, summary) -> None:
 
 
 def run_cli(argv: Sequence[str] | None = None) -> None:
+    """运行命令行入口。"""
     parser = _build_parser()
     args = parser.parse_args(argv)
 
@@ -89,6 +92,7 @@ def run_cli(argv: Sequence[str] | None = None) -> None:
 
 
 def run_demo_from_config(config: QTSConfig):
+    """按配置运行一次 demo。"""
     from .config import build_system_from_config, load_market_from_config
 
     market = load_market_from_config(config)

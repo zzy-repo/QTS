@@ -10,6 +10,8 @@ from .specs import StrategySpec
 
 @dataclass
 class MultiDecisionSystem:
+    """系统级门面，负责装配并运行管线。"""
+
     strategies: list[StrategySpec]
     optimizer_mode: str = "score"
     execution_mode: str = "backtest"
@@ -24,6 +26,7 @@ class MultiDecisionSystem:
     _pipeline: SystemPipeline | None = field(default=None, init=False, repr=False)
 
     def build_pipeline(self) -> SystemPipeline:
+        """构建当前系统配置对应的流水线。"""
         return SystemPipeline(
             signal_generator=SignalGenerator(strategies=self.strategies),
             optimizer=Optimizer(mode=self.optimizer_mode, capped_cap=self.optimizer_cap),
@@ -43,11 +46,13 @@ class MultiDecisionSystem:
 
     @property
     def pipeline(self) -> SystemPipeline:
+        """懒加载系统流水线。"""
         if self._pipeline is None:
             self._pipeline = self.build_pipeline()
         return self._pipeline
 
     def run(self, market: MarketPanel) -> SystemRunResult:
+        """运行完整多策略系统。"""
         if not self.strategies:
             raise ValueError("at least one strategy is required")
         return self.pipeline.run(market)
