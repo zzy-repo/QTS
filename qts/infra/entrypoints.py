@@ -4,8 +4,6 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..core.data.models import MarketPanel
-from ..core.portfolio.results import SystemRunResult
 from .config import QTSConfig, build_system_from_config, load_market_from_config, load_qts_config
 from .models import EntryRun
 from .report import build_report, latest_signal_frame, normalize_signal_frame

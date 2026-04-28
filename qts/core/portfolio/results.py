@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 from .allocation import AllocationResult
@@ -18,6 +19,39 @@ def annualized_return(total_return: float, periods: int, trading_days_per_year: 
     if base <= 0:
         return float("nan")
     return float(base ** (trading_days_per_year / float(periods)) - 1.0)
+
+
+def rolling_annualized_return(
+    cumulative_return: pd.Series,
+    trading_days_per_year: int = TRADING_DAYS_PER_YEAR,
+) -> pd.Series:
+    """按截至当日的累计收益，计算逐日年化收益。"""
+    values = pd.to_numeric(cumulative_return, errors="coerce").to_numpy(dtype=float, copy=True)
+    if values.size == 0:
+        return pd.Series(dtype=float, index=cumulative_return.index, name="annualized_return")
+
+    periods = np.arange(1, values.size + 1, dtype=float)
+    base = 1.0 + values
+    annualized = np.full(values.shape, np.nan, dtype=float)
+    valid = np.isfinite(values) & (periods > 0.0) & (base > 0.0)
+    annualized[valid] = np.power(base[valid], trading_days_per_year / periods[valid]) - 1.0
+    return pd.Series(annualized, index=cumulative_return.index, name="annualized_return")
+
+
+def final_annualized_return(frame: pd.DataFrame, trading_days_per_year: int = TRADING_DAYS_PER_YEAR) -> float:
+    """提取结果表中最后一个有效年化收益；若缺失则按累计收益回算。"""
+    if frame.empty:
+        return float("nan")
+    if "annualized_return" in frame.columns:
+        annualized = pd.to_numeric(frame["annualized_return"], errors="coerce")
+        if annualized.notna().any():
+            return float(annualized.dropna().iloc[-1])
+    if "cum_return" in frame.columns:
+        cumulative = pd.to_numeric(frame["cum_return"], errors="coerce")
+        valid = cumulative.dropna()
+        if not valid.empty:
+            return annualized_return(float(valid.iloc[-1]), len(valid), trading_days_per_year=trading_days_per_year)
+    return float("nan")
 
 
 @dataclass(frozen=True)

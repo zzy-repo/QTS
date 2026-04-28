@@ -8,7 +8,7 @@ import pandas as pd
 from ..data.models import ExecutionRun, MarketPanel
 from ..signal.specs import StrategySpec
 from .allocation import allocate_capital
-from .results import StrategyRunResult, SystemRunResult, annualized_return
+from .results import StrategyRunResult, SystemRunResult, rolling_annualized_return
 
 
 class _OptimizerLike(Protocol):
@@ -94,10 +94,7 @@ class PortfolioManager:
             aggregate_equity = pd.DataFrame(equity_rows)
             aggregate_pnl["equity"] = aggregate_equity["equity"].values
             aggregate_pnl["cum_return"] = aggregate_pnl["equity"] / float(self.initial_cash) - 1.0
-            aggregate_pnl["annualized_return"] = annualized_return(
-                float(aggregate_pnl["cum_return"].iloc[-1]),
-                len(aggregate_pnl),
-            )
+            aggregate_pnl["annualized_return"] = rolling_annualized_return(aggregate_pnl["cum_return"])
         else:
             aggregate_pnl = pd.DataFrame(
                 columns=["date", "signal_date", "gross_return", "allocation_weight", "equity", "cum_return", "annualized_return"]

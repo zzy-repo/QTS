@@ -10,7 +10,7 @@ import pandas as pd
 from ..core.data.data_source import DEFAULT_UNIVERSE, load_market_panel
 from ..core.data.models import StrategyInput
 from ..core.signal.specs import StrategySpec
-from ..core.signal.strategy import momentum_signal, trend_follow_signal
+from ..core.signal.strategy import momentum_signal, sharpe_signal, trend_follow_signal
 from .models import MarketConfig, QTSConfig, StrategyConfig, SystemConfig
 
 STRATEGY_KIND_ALIASES = {
@@ -18,6 +18,8 @@ STRATEGY_KIND_ALIASES = {
     "动量": "momentum",
     "trend": "trend",
     "趋势": "trend",
+    "sharpe": "sharpe",
+    "夏普": "sharpe",
 }
 
 OPTIMIZER_MODE_ALIASES = {
@@ -25,6 +27,10 @@ OPTIMIZER_MODE_ALIASES = {
     "打分": "score",
     "equal": "equal",
     "等权": "equal",
+    "inv_vol": "inv_vol",
+    "逆波动率": "inv_vol",
+    "blend": "blend",
+    "混合": "blend",
     "capped": "capped",
     "截断": "capped",
 }
@@ -74,6 +80,19 @@ def _build_strategy_builder(kind: str, *, lookback: int, top_n: int) -> Callable
     if kind == "trend":
         def builder(data: StrategyInput) -> pd.DataFrame:
             return trend_follow_signal(
+                StrategyInput(
+                    close=data.close,
+                    volume=data.volume,
+                    amount=data.amount,
+                    lookback=lookback,
+                    top_n=top_n,
+                )
+            )
+
+        return builder
+    if kind == "sharpe":
+        def builder(data: StrategyInput) -> pd.DataFrame:
+            return sharpe_signal(
                 StrategyInput(
                     close=data.close,
                     volume=data.volume,

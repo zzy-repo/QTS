@@ -60,7 +60,7 @@ class SystemConfig:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "优化器": {"score": "打分", "equal": "等权", "capped": "截断"}.get(self.optimizer_mode, self.optimizer_mode),
+            "优化器": {"score": "打分", "equal": "等权", "inv_vol": "逆波动率", "blend": "混合", "capped": "截断"}.get(self.optimizer_mode, self.optimizer_mode),
             "执行器": {"backtest": "回测", "sim": "模拟", "paper": "纸面"}.get(self.execution_mode, self.execution_mode),
             "初始资金": self.initial_cash,
             "手数": self.lot_size,

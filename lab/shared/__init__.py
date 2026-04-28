@@ -30,6 +30,7 @@ from .data_source import (
     save_csv,
 )
 from .records import ExperimentMeta, record_experiment
+from .feasibility import compute_performance_metrics, compute_rolling_metrics, compute_tail_metrics
 
 __all__ = [
     "DEFAULT_SYMBOL",
@@ -64,6 +65,9 @@ __all__ = [
     "normalize_daily_history",
     "quality_checks",
     "record_experiment",
+    "compute_performance_metrics",
+    "compute_rolling_metrics",
+    "compute_tail_metrics",
     "reserve_cash",
     "risk_state_machine",
     "StrategyInput",

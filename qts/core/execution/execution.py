@@ -6,16 +6,7 @@ import numpy as np
 import pandas as pd
 
 from ..data.models import ExecutionRun, MarketPanel
-
-
-def _annualized_return(total_return: float, periods: int, trading_days_per_year: int = 252) -> float:
-    """计算执行结果的年化收益。"""
-    if periods <= 0:
-        return float("nan")
-    base = 1.0 + float(total_return)
-    if base <= 0:
-        return float("nan")
-    return float(base ** (trading_days_per_year / float(periods)) - 1.0)
+from ..portfolio.results import rolling_annualized_return
 
 
 def dynamic_slippage_cost(
@@ -34,6 +25,11 @@ def dynamic_slippage_cost(
     rate += participation_scale * np.sqrt(participation)
     rate += vol_scale * max(volatility, 0.0)
     return float(trade_notional * rate)
+
+
+def _format_frame_date(value: pd.Timestamp) -> str:
+    """按日期粒度或时间粒度格式化时间戳。"""
+    return value.strftime("%Y-%m-%d %H:%M:%S") if value.time() != pd.Timestamp(value.date()).time() else value.strftime("%Y-%m-%d")
 
 
 def execute_rebalance(
@@ -101,7 +97,7 @@ def execute_rebalance(
             actual_weight = actual_value / portfolio_value_before if portfolio_value_before else 0.0
             holdings_rows.append(
                 {
-                    "date": date_ts.strftime("%Y-%m-%d %H:%M:%S") if date_ts.time() != pd.Timestamp(date_ts.date()).time() else date_ts.strftime("%Y-%m-%d"),
+                    "date": _format_frame_date(date_ts),
                     "symbol": symbol,
                     "target_weight": target_weight,
                     "actual_weight": actual_weight,
@@ -118,7 +114,7 @@ def execute_rebalance(
             )
             orders_rows.append(
                 {
-                    "date": date_ts.strftime("%Y-%m-%d %H:%M:%S") if date_ts.time() != pd.Timestamp(date_ts.date()).time() else date_ts.strftime("%Y-%m-%d"),
+                    "date": _format_frame_date(date_ts),
                     "symbol": symbol,
                     "trade_shares": float(trade_shares.get(symbol, 0.0)),
                     "trade_notional": float(trade_notional.get(symbol, 0.0)),
@@ -138,8 +134,8 @@ def execute_rebalance(
             turnover = float(trade_shares.abs().sum())
             pnl_rows.append(
                 {
-                    "date": next_date.strftime("%Y-%m-%d %H:%M:%S") if next_date.time() != pd.Timestamp(next_date.date()).time() else next_date.strftime("%Y-%m-%d"),
-                    "signal_date": date_ts.strftime("%Y-%m-%d %H:%M:%S") if date_ts.time() != pd.Timestamp(date_ts.date()).time() else date_ts.strftime("%Y-%m-%d"),
+                    "date": _format_frame_date(next_date),
+                    "signal_date": _format_frame_date(date_ts),
                     "gross_return": gross_return,
                     "turnover": turnover,
                     "slippage_cost": slippage_cost,
@@ -154,5 +150,5 @@ def execute_rebalance(
     pnl = pd.DataFrame(pnl_rows)
     if not pnl.empty:
         pnl["cum_return"] = pnl["equity"] / float(initial_cash) - 1.0
-        pnl["annualized_return"] = _annualized_return(float(pnl["cum_return"].iloc[-1]), len(pnl))
+        pnl["annualized_return"] = rolling_annualized_return(pnl["cum_return"])
     return ExecutionRun(orders=orders, holdings=holdings, pnl=pnl)

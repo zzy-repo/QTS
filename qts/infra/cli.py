@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
+from ..core.analysis import equal_weight_benchmark
 from .config import (
     apply_overrides,
     default_qts_config,
@@ -99,7 +100,8 @@ def run_demo_from_config(config: QTSConfig):
     market = load_market_from_config(config)
     system = build_system_from_config(config)
     result = system.run(market)
-    summary = summarize_system_run(result)
+    benchmark = equal_weight_benchmark(market.close) if not market.close.empty else None
+    summary = summarize_system_run(result, benchmark=benchmark)
     return market, system, result, summary
 
 

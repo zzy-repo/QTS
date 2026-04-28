@@ -4,6 +4,7 @@ from dataclasses import dataclass, field, replace
 
 import pandas as pd
 
+from ..core.analysis import equal_weight_benchmark, performance_summary_from_pnl, risk_state_machine
 from ..core.data.models import MarketPanel
 from ..core.execution.engine import Executor
 from ..core.optimize.engine import Optimizer
@@ -11,7 +12,6 @@ from ..core.portfolio.engine import PortfolioManager
 from ..core.portfolio.results import SystemRunResult
 from ..core.signal.engine import SignalGenerator
 from ..core.signal.specs import StrategySpec
-from .diagnostics import risk_state_machine
 
 
 @dataclass
@@ -26,13 +26,19 @@ class SystemPipeline:
     def run(self, market: MarketPanel) -> SystemRunResult:
         """运行完整处理流水线。"""
         strategy_signals = self.signal_generator.generate(market)
-        return self.portfolio_manager.build(
+        result = self.portfolio_manager.build(
             strategies=self.signal_generator.strategies,
             strategy_signals=strategy_signals,
             market=market,
             optimizer=self.optimizer,
             executor=self.executor,
         )
+        benchmark = equal_weight_benchmark(market.close) if not market.close.empty else None
+        performance = performance_summary_from_pnl(result.aggregate_pnl, benchmark=benchmark, turnover_column="allocation_weight")
+        snapshot = dict(result.snapshot)
+        if not performance.empty:
+            snapshot["performance"] = performance.iloc[0].to_dict()
+        return replace(result, snapshot=snapshot)
 
 
 @dataclass

@@ -8,14 +8,22 @@ import pandas as pd
 
 from .backtest import MarketPanel
 
-
-def _annualized_return(total_return: float, periods: int, trading_days_per_year: int = 252) -> float:
-    if periods <= 0:
-        return float("nan")
-    base = 1.0 + float(total_return)
-    if base <= 0:
-        return float("nan")
-    return float(base ** (trading_days_per_year / float(periods)) - 1.0)
+try:
+    from qts.core.portfolio.results import rolling_annualized_return
+except Exception:
+    def rolling_annualized_return(
+        cumulative_return: pd.Series,
+        trading_days_per_year: int = 252,
+    ) -> pd.Series:
+        values = pd.to_numeric(cumulative_return, errors="coerce").to_numpy(dtype=float, copy=True)
+        if values.size == 0:
+            return pd.Series(dtype=float, index=cumulative_return.index, name="annualized_return")
+        periods = np.arange(1, values.size + 1, dtype=float)
+        base = 1.0 + values
+        annualized = np.full(values.shape, np.nan, dtype=float)
+        valid = np.isfinite(values) & (periods > 0.0) & (base > 0.0)
+        annualized[valid] = np.power(base[valid], trading_days_per_year / periods[valid]) - 1.0
+        return pd.Series(annualized, index=cumulative_return.index, name="annualized_return")
 
 
 @dataclass(frozen=True)
@@ -187,5 +195,5 @@ def execute_rebalance(
     pnl = pd.DataFrame(pnl_rows)
     if not pnl.empty:
         pnl["cum_return"] = pnl["equity"] / float(initial_cash) - 1.0
-        pnl["annualized_return"] = _annualized_return(float(pnl["cum_return"].iloc[-1]), len(pnl))
+        pnl["annualized_return"] = rolling_annualized_return(pnl["cum_return"])
     return ExecutionRun(orders=orders, holdings=holdings, pnl=pnl)

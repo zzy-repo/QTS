@@ -125,6 +125,31 @@ def _build_synthetic_series(
     return MarketPanel(close=close, volume=volume, amount=amount, source_mode="offline-seed")
 
 
+def _expand_seed_base(base: pd.DataFrame, start_date: str, end_date: str) -> pd.DataFrame:
+    business_index = pd.bdate_range(start=pd.to_datetime(start_date), end=pd.to_datetime(end_date))
+    if business_index.empty:
+        return base.copy()
+    ordered = base.sort_values("date").reset_index(drop=True)
+    if len(ordered) == 1:
+        close = np.full(len(business_index), float(ordered.loc[0, "close"]))
+        volume = np.full(len(business_index), float(ordered.loc[0, "volume"]))
+        amount = np.full(len(business_index), float(ordered.loc[0, "amount"]))
+    else:
+        source_x = np.linspace(0.0, 1.0, len(ordered))
+        target_x = np.linspace(0.0, 1.0, len(business_index))
+        close = np.interp(target_x, source_x, ordered["close"].to_numpy(dtype=float))
+        volume = np.interp(target_x, source_x, ordered["volume"].to_numpy(dtype=float))
+        amount = np.interp(target_x, source_x, ordered["amount"].to_numpy(dtype=float))
+    return pd.DataFrame(
+        {
+            "date": business_index,
+            "close": close,
+            "volume": volume,
+            "amount": amount,
+        }
+    )
+
+
 def load_close_panel(
     symbols: list[str],
     start_date: str,
@@ -165,7 +190,9 @@ def load_market_panel(
         & (base["date"] <= pd.to_datetime(end_date))
     ].reset_index(drop=True)
     if base.empty:
-        raise ValueError("seed history is empty for requested date range")
+        base = _load_seed_base()
+    if len(base) < 120:
+        base = _expand_seed_base(base, start_date, end_date)
     market = _build_synthetic_series(base, symbols)
     return market
 
