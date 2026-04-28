@@ -5,11 +5,19 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
 
 # Virtual environments
 .venv
 
 .env
+
+# OS-generated files
+.DS_Store
+
+# Runtime outputs
+artifacts/
+*.log
 
 # Generated lab outputs
 lab/**/__pycache__/

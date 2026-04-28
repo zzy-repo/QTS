@@ -87,7 +87,7 @@ class MultiDecisionSystem:
     def run(self, market: MarketPanel) -> SystemRunResult:
         """运行完整多策略系统。"""
         if not self.strategies:
-            raise ValueError("at least one strategy is required")
+            raise ValueError("至少需要配置一个策略")
         result = self.pipeline.run(market)
         risk_frame = risk_state_machine(
             result.aggregate_equity["equity"] if not result.aggregate_equity.empty else pd.Series(dtype=float)

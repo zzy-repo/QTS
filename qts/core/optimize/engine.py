@@ -18,5 +18,5 @@ class Optimizer:
         """执行选定的优化器。"""
         optimizer = build_optimizers(capped_cap=self.capped_cap).get(self.mode)
         if optimizer is None:
-            raise ValueError(f"unknown optimizer mode: {self.mode}")
+            raise ValueError(f"未知的优化器模式：{self.mode}")
         return optimizer.run(signals)

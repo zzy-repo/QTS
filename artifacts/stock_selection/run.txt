@@ -1,2 +1,0 @@
-配置：/Users/zzy/Develop/QTS/configs/stock_selection.json
-状态：完成

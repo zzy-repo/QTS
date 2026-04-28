@@ -8,6 +8,7 @@ dependencies = [
     "akshare>=1.18.54",
     "h2>=4.3.0",
     "httpx>=0.28.1",
+    "loguru>=0.7.3",
     "pyarrow>=19.0.0",
     "pydantic-settings>=2.13.1",
     "pytest>=9.0.3",

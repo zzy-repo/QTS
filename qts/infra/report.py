@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import Callable, Literal
+
 import pandas as pd
 
 SIGNAL_COLUMNS = ["date", "symbol", "rank", "score", "weight"]
+ReportKind = Literal["backtest", "close", "selection"]
 
 
 def normalize_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -29,16 +32,18 @@ def latest_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return normalized[normalized["date"].eq(latest_date)].copy().reset_index(drop=True)
 
 
-def build_report(frame: pd.DataFrame, kind: str) -> pd.DataFrame:
+def build_report(frame: pd.DataFrame, kind: ReportKind) -> pd.DataFrame:
     """生成指定类型的报表。"""
     normalized_kind = kind.strip().lower()
-    if normalized_kind == "backtest":
-        return _build_backtest_report(frame)
-    if normalized_kind == "close":
-        return _build_close_report(frame)
-    if normalized_kind == "selection":
-        return _build_selection_report(frame)
-    raise ValueError(f"unsupported report kind: {kind}")
+    builders: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
+        "backtest": _build_backtest_report,
+        "close": _build_close_report,
+        "selection": _build_selection_report,
+    }
+    builder = builders.get(normalized_kind)
+    if builder is None:
+        raise ValueError(f"不支持的报表类型：{kind}")
+    return builder(frame)
 
 
 def _build_backtest_report(frame: pd.DataFrame) -> pd.DataFrame:

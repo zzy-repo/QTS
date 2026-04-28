@@ -62,48 +62,107 @@ def _alias(mapping: dict[str, str], value: object, default: str) -> str:
     return mapping.get(text, mapping.get(text.lower(), default))
 
 
+def _as_bool(value: object, default: bool = False) -> bool:
+    """把配置值归一为布尔值。"""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on", "是", "启用", "开启"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "否", "禁用", "关闭"}:
+        return False
+    return default
+
+
+def _strategy_input(data: StrategyInput, *, lookback: int, top_n: int) -> StrategyInput:
+    """基于调用时参数重建策略输入。"""
+    return StrategyInput(
+        close=data.close,
+        volume=data.volume,
+        amount=data.amount,
+        lookback=lookback,
+        top_n=top_n,
+    )
+
+
+def _build_signal_builder(signal_fn: Callable[[StrategyInput], pd.DataFrame], *, lookback: int, top_n: int) -> Callable[[StrategyInput], pd.DataFrame]:
+    """把具体信号函数包装成统一的策略构建器。"""
+
+    def builder(data: StrategyInput) -> pd.DataFrame:
+        return signal_fn(_strategy_input(data, lookback=lookback, top_n=top_n))
+
+    return builder
+
+
 def _build_strategy_builder(kind: str, *, lookback: int, top_n: int) -> Callable[[StrategyInput], pd.DataFrame]:
     """构建指定策略类型的信号生成器。"""
-    if kind == "momentum":
-        def builder(data: StrategyInput) -> pd.DataFrame:
-            return momentum_signal(
-                StrategyInput(
-                    close=data.close,
-                    volume=data.volume,
-                    amount=data.amount,
-                    lookback=lookback,
-                    top_n=top_n,
-                )
-            )
+    signal_builders: dict[str, Callable[[StrategyInput], pd.DataFrame]] = {
+        "momentum": momentum_signal,
+        "trend": trend_follow_signal,
+        "sharpe": sharpe_signal,
+    }
+    signal_fn = signal_builders.get(kind)
+    if signal_fn is None:
+        raise ValueError(f"不支持的策略类型: {kind}")
+    return _build_signal_builder(signal_fn, lookback=lookback, top_n=top_n)
 
-        return builder
-    if kind == "trend":
-        def builder(data: StrategyInput) -> pd.DataFrame:
-            return trend_follow_signal(
-                StrategyInput(
-                    close=data.close,
-                    volume=data.volume,
-                    amount=data.amount,
-                    lookback=lookback,
-                    top_n=top_n,
-                )
-            )
 
-        return builder
-    if kind == "sharpe":
-        def builder(data: StrategyInput) -> pd.DataFrame:
-            return sharpe_signal(
-                StrategyInput(
-                    close=data.close,
-                    volume=data.volume,
-                    amount=data.amount,
-                    lookback=lookback,
-                    top_n=top_n,
-                )
-            )
+def _build_market_config(payload: dict[str, object]) -> MarketConfig:
+    """从原始配置中解析市场配置。"""
+    market_raw = _pick(payload, "市场", "market", default={}) or {}
+    return MarketConfig(
+        symbols=list(_pick(market_raw, "标的池", "symbols", default=DEFAULT_UNIVERSE)),
+        start_date=str(_pick(market_raw, "开始日期", "start_date", default=DEFAULT_START_DATE)),
+        end_date=str(_pick(market_raw, "结束日期", "end_date", default=DEFAULT_END_DATE)),
+        allow_synthetic_fallback=_as_bool(_pick(market_raw, "允许合成回退", "allow_synthetic_fallback", default=False)),
+    )
 
-        return builder
-    raise ValueError(f"不支持的策略类型: {kind}")
+
+def _normalize_capital_caps(raw: object) -> dict[str, float]:
+    """把资本上限字段整理成内部统一格式。"""
+    if not isinstance(raw, dict):
+        return {}
+    payload = raw
+    return {str(k): float(v) for k, v in payload.items()}
+
+
+def _build_system_config(payload: dict[str, object]) -> SystemConfig:
+    """从原始配置中解析系统配置。"""
+    system_raw = _pick(payload, "系统", "system", default={}) or {}
+    return SystemConfig(
+        optimizer_mode=_alias(OPTIMIZER_MODE_ALIASES, _pick(system_raw, "优化器", "optimizer_mode", default="score"), "score"),
+        execution_mode=_alias(EXECUTION_MODE_ALIASES, _pick(system_raw, "执行器", "execution_mode", default="backtest"), "backtest"),
+        initial_cash=float(_pick(system_raw, "初始资金", "initial_cash", default=1_000_000.0)),
+        lot_size=int(_pick(system_raw, "手数", "lot_size", default=100)),
+        capital_caps=_normalize_capital_caps(_pick(system_raw, "资本上限", "capital_caps", default={})),
+        optimizer_cap=float(_pick(system_raw, "优化器截断上限", "optimizer_cap", default=0.4)),
+        max_adv_pct=float(_pick(system_raw, "最大ADV占比", "max_adv_pct", default=0.02)),
+        slippage_base_bps=float(_pick(system_raw, "基础滑点bp", "slippage_base_bps", default=1.0)),
+        slippage_participation_scale=float(_pick(system_raw, "参与率滑点系数", "slippage_participation_scale", default=0.035)),
+        slippage_vol_scale=float(_pick(system_raw, "波动率滑点系数", "slippage_vol_scale", default=0.15)),
+    )
+
+
+def _build_strategy_configs(payload: dict[str, object]) -> list[StrategyConfig]:
+    """从原始配置中解析策略列表。"""
+    strategies_raw = _pick(payload, "策略", "strategies", default=[]) or []
+    strategies: list[StrategyConfig] = []
+    for index, raw in enumerate(strategies_raw):
+        if not isinstance(raw, dict):
+            continue
+        strategies.append(
+            StrategyConfig(
+                name=str(_pick(raw, "名称", "name", default=f"策略{index + 1}")),
+                kind=_alias(STRATEGY_KIND_ALIASES, _pick(raw, "类型", "type", default="momentum"), "momentum"),
+                lookback=int(_pick(raw, "回看周期", "lookback", default=20)),
+                top_n=int(_pick(raw, "选取数量", "top_n", default=3)),
+            )
+        )
+    return strategies
 
 
 def default_qts_config() -> QTSConfig:
@@ -152,43 +211,9 @@ def load_qts_config(path: str | Path | None = None) -> QTSConfig:
         raise FileNotFoundError(f"配置文件不存在: {path}")
 
     payload = json.loads(path.read_text(encoding="utf-8"))
-    market_raw = _pick(payload, "市场", "market", default={}) or {}
-    system_raw = _pick(payload, "系统", "system", default={}) or {}
-    strategies_raw = _pick(payload, "策略", "strategies", default=[]) or []
-
-    market = MarketConfig(
-        symbols=list(_pick(market_raw, "标的池", "symbols", default=DEFAULT_UNIVERSE)),
-        start_date=str(_pick(market_raw, "开始日期", "start_date", default=DEFAULT_START_DATE)),
-        end_date=str(_pick(market_raw, "结束日期", "end_date", default=DEFAULT_END_DATE)),
-    )
-    system = SystemConfig(
-        optimizer_mode=_alias(OPTIMIZER_MODE_ALIASES, _pick(system_raw, "优化器", "optimizer_mode", default="score"), "score"),
-        execution_mode=_alias(EXECUTION_MODE_ALIASES, _pick(system_raw, "执行器", "execution_mode", default="backtest"), "backtest"),
-        initial_cash=float(_pick(system_raw, "初始资金", "initial_cash", default=1_000_000.0)),
-        lot_size=int(_pick(system_raw, "手数", "lot_size", default=100)),
-        capital_caps={str(k): float(v) for k, v in (_pick(system_raw, "资本上限", "capital_caps", default={}) or {}).items()},
-        optimizer_cap=float(_pick(system_raw, "优化器截断上限", "optimizer_cap", default=0.4)),
-        max_adv_pct=float(_pick(system_raw, "最大ADV占比", "max_adv_pct", default=0.02)),
-        slippage_base_bps=float(_pick(system_raw, "基础滑点bp", "slippage_base_bps", default=1.0)),
-        slippage_participation_scale=float(_pick(system_raw, "参与率滑点系数", "slippage_participation_scale", default=0.035)),
-        slippage_vol_scale=float(_pick(system_raw, "波动率滑点系数", "slippage_vol_scale", default=0.15)),
-    )
-
-    strategies: list[StrategyConfig] = []
-    for index, raw in enumerate(strategies_raw or []):
-        if not isinstance(raw, dict):
-            continue
-        strategies.append(
-            StrategyConfig(
-                name=str(_pick(raw, "名称", "name", default=f"策略{index + 1}")),
-                kind=_alias(STRATEGY_KIND_ALIASES, _pick(raw, "类型", "type", default="momentum"), "momentum"),
-                lookback=int(_pick(raw, "回看周期", "lookback", default=20)),
-                top_n=int(_pick(raw, "选取数量", "top_n", default=3)),
-            )
-        )
-
-    if not strategies:
-        strategies = list(default_qts_config().strategies)
+    market = _build_market_config(payload)
+    system = _build_system_config(payload)
+    strategies = _build_strategy_configs(payload) or list(default_qts_config().strategies)
     return QTSConfig(market=market, system=system, strategies=strategies)
 
 
@@ -234,6 +259,7 @@ def load_market_from_config(config: QTSConfig, *, cache_root: Path | None = None
         config.market.start_date,
         config.market.end_date,
         cache_root=cache_root,
+        allow_synthetic_fallback=config.market.allow_synthetic_fallback,
     )
 
 

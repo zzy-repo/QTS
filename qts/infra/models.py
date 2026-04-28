@@ -16,12 +16,14 @@ class MarketConfig:
     symbols: list[str]
     start_date: str
     end_date: str
+    allow_synthetic_fallback: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
             "标的池": list(self.symbols),
             "开始日期": self.start_date,
             "结束日期": self.end_date,
+            "允许合成回退": self.allow_synthetic_fallback,
         }
 
 

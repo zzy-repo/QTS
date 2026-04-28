@@ -129,12 +129,12 @@ def validate_strategy_output(signal: pd.DataFrame) -> list[str]:
     issues: list[str] = []
     required = {"date", "symbol", "weight"}
     if not required.issubset(signal.columns):
-        return [f"missing columns: {', '.join(sorted(required - set(signal.columns)))}"]
+        return [f"缺少字段：{', '.join(sorted(required - set(signal.columns)))}"]
     if signal["weight"].isna().any():
-        issues.append("weight contains null values")
+        issues.append("weight 列存在空值")
     if (signal["weight"] < 0).any():
-        issues.append("weight contains negative values")
+        issues.append("weight 列存在负值")
     grouped = signal.groupby("date")["weight"].sum()
     if not grouped.empty and not np.isfinite(grouped).all():
-        issues.append("weight sum contains non-finite values")
+        issues.append("按日期汇总后的 weight 存在非有限值")
     return issues

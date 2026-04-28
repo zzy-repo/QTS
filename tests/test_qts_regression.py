@@ -3,8 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
+import requests
 
 from qts.core.data.models import MarketPanel
+from qts.core.data import data_source as data_source_module
 from qts.core.portfolio.results import annualized_return
 from qts.infra.config import build_system_from_config, default_qts_config, load_qts_config, save_qts_config
 from qts.infra.entrypoints import DEFAULT_BACKTEST_CONFIG, run_backtest_entry, run_close_report_entry, run_stock_selection_entry
@@ -102,3 +105,108 @@ def test_sharpe_strategy_and_blend_optimizer_run_on_synthetic_market() -> None:
     assert not result.aggregate_pnl.empty
     assert "performance" in result.snapshot
     assert result.snapshot["optimizer_mode"] == "blend"
+
+
+def test_load_market_panel_propagates_unexpected_errors(monkeypatch) -> None:
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(data_source_module, "sync_symbol_history", boom)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        data_source_module.load_market_panel(["000001"], "20240102", "20240110")
+
+
+def test_load_market_panel_falls_back_when_symbol_data_missing(monkeypatch) -> None:
+    empty_sync = data_source_module.SyncResult(
+        frame=pd.DataFrame(columns=["date", "symbol", "close", "volume", "amount"]),
+        cache_frame=pd.DataFrame(columns=["date", "symbol", "close", "volume", "amount"]),
+        cache_path=Path("/tmp/cache.parquet"),
+        state_path=Path("/tmp/state.json"),
+        cache_hit=False,
+        network_hit=False,
+        fetched_ranges=[],
+        source_mode="network",
+    )
+
+    monkeypatch.setattr(data_source_module, "sync_symbol_history", lambda *args, **kwargs: empty_sync)
+
+    market = data_source_module.load_market_panel(
+        ["000001"],
+        "20240102",
+        "20240110",
+        allow_synthetic_fallback=True,
+    )
+
+    assert not market.close.empty
+    assert market.source_mode == "offline-seed"
+
+
+def test_build_secid_matches_eastmoney_market_code() -> None:
+    assert data_source_module._build_secid("000001") == "0.000001"
+    assert data_source_module._build_secid("300750") == "0.300750"
+    assert data_source_module._build_secid("600519") == "1.600519"
+    assert data_source_module._build_secid("601318") == "1.601318"
+
+
+def test_fetch_daily_history_falls_back_to_tx_when_eastmoney_fails(monkeypatch) -> None:
+    def fail_eastmoney(*args, **kwargs):
+        raise requests.exceptions.ProxyError("proxy down")
+
+    def tx_frame(*args, **kwargs):
+        frame = pd.DataFrame(
+            [
+                {
+                    "symbol": "600519",
+                    "date": "2024-01-02",
+                    "open": 10.0,
+                    "high": 11.0,
+                    "low": 9.0,
+                    "close": 10.5,
+                    "volume": 1000.0,
+                    "amount": 10500.0,
+                    "amplitude": pd.NA,
+                    "pct_change": pd.NA,
+                    "change": pd.NA,
+                    "turnover": pd.NA,
+                }
+            ]
+        )
+        frame.attrs["provider"] = "tx"
+        return frame
+
+    monkeypatch.setattr(data_source_module, "_fetch_eastmoney_daily_history", fail_eastmoney)
+    monkeypatch.setattr(data_source_module, "_fetch_tx_daily_history", tx_frame)
+
+    frame = data_source_module.fetch_daily_history("600519", "20240102", "20240110")
+
+    assert frame.attrs["provider"] == "tx"
+    assert frame.iloc[0]["symbol"] == "600519"
+
+
+def test_fetch_tx_daily_history_normalizes_volume_and_amount(monkeypatch) -> None:
+    sample = pd.DataFrame(
+        [
+            {
+                "date": "2024-01-02",
+                "open": 10.0,
+                "close": 12.0,
+                "high": 12.5,
+                "low": 9.8,
+                "amount": 300.0,
+            }
+        ]
+    )
+
+    class _AkModule:
+        @staticmethod
+        def stock_zh_a_hist_tx(*args, **kwargs):
+            return sample
+
+    monkeypatch.setitem(__import__("sys").modules, "akshare", _AkModule())
+
+    frame = data_source_module._fetch_tx_daily_history("000001", "20240102", "20240110")
+
+    assert frame.attrs["provider"] == "tx"
+    assert float(frame.iloc[0]["volume"]) == 300.0
+    assert float(frame.iloc[0]["amount"]) == 3600.0

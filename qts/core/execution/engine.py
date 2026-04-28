@@ -34,5 +34,5 @@ class Executor:
             max_adv_pct=self.max_adv_pct,
         ).get(self.mode)
         if adapter is None:
-            raise ValueError(f"unknown execution mode: {self.mode}")
+            raise ValueError(f"未知的执行模式：{self.mode}")
         return adapter.run(target, market, initial_cash=initial_cash, lot_size=lot_size)

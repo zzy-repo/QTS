@@ -1,16 +1,32 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-import json
-import os
 from pathlib import Path
 from typing import Callable
 
 import httpx
 import numpy as np
 import pandas as pd
+import requests
+from loguru import logger
 
+from .cache import (
+    CACHE_COLUMNS,
+    compact_date,
+    default_cache_root,
+    ensure_history_frame,
+    format_date,
+    load_state,
+    merge_history_frames,
+    missing_ranges,
+    parse_date,
+    read_cache_frame,
+    state_path,
+    symbol_cache_path,
+    updated_at,
+    write_cache_frame,
+    write_state,
+)
 from .models import MarketPanel
 
 DEFAULT_SYMBOL = "000001"
@@ -45,11 +61,6 @@ STANDARD_COLUMNS = [
     "turnover",
 ]
 
-_CACHE_ENV_VAR = "QTS_MARKET_CACHE_DIR"
-_CACHE_SUBDIR = ".cache/qts-market"
-_STATE_FILENAME = "state.json"
-_CACHE_COLUMNS = ["date", "symbol", "close", "volume", "amount"]
-
 
 @dataclass(frozen=True)
 class SyncResult:
@@ -65,8 +76,42 @@ class SyncResult:
     source_mode: str
 
 
-def fetch_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """获取单标的历史日线。"""
+class MarketDataUnavailableError(RuntimeError):
+    """表示某个标的在请求区间内没有可用市场数据。"""
+
+
+SOURCE_MODE_LABELS = {
+    "offline-seed": "内置合成数据",
+    "cache": "本地缓存",
+    "eastmoney": "东方财富",
+    "tx": "腾讯行情",
+    "cache+eastmoney": "本地缓存+东方财富",
+    "cache+tx": "本地缓存+腾讯行情",
+    "cache+network": "本地缓存+网络补拉",
+    "network": "网络拉取",
+}
+
+
+def _build_secid(symbol: str) -> str:
+    """根据股票代码构造东财历史接口的 secid。"""
+    market_code = 1 if symbol.startswith("6") else 0
+    return f"{market_code}.{symbol}"
+
+
+def _build_tx_symbol(symbol: str) -> str:
+    """把内部股票代码映射成腾讯历史接口需要的市场前缀代码。"""
+    market_prefix = "sh" if symbol.startswith("6") else "sz"
+    return f"{market_prefix}{symbol}"
+
+
+def describe_source_mode(source_mode: str) -> str:
+    """把内部来源标识转换为中文描述。"""
+    return SOURCE_MODE_LABELS.get(source_mode, source_mode)
+
+
+def _fetch_eastmoney_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """通过东财接口获取单标的历史日线。"""
+    logger.info("开始拉取东方财富历史行情 标的={} 开始={} 结束={}", symbol, start_date, end_date)
     url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     params = {
         "fields1": "f1,f2,f3,f4,f5,f6",
@@ -74,15 +119,17 @@ def fetch_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataF
         "ut": "7eea3edcaed734bea9cbfc24409ed989",
         "klt": "101",
         "fqt": "1",
-        "secid": f"0.{symbol}",
+        "secid": _build_secid(symbol),
         "beg": start_date,
         "end": end_date,
     }
-    with httpx.Client(timeout=15, follow_redirects=True, trust_env=False) as client:
-        response = client.get(url, params=params)
-        response.raise_for_status()
-        payload = response.json()
-    klines = payload["data"]["klines"]
+    response = requests.get(url, params=params, timeout=15)
+    response.raise_for_status()
+    payload = response.json()
+    data = payload.get("data")
+    if not data or not data.get("klines"):
+        raise MarketDataUnavailableError(f"东方财富未返回可用行情，标的={symbol}")
+    klines = data["klines"]
     df = pd.DataFrame([row.split(",") for row in klines])
     df.columns = [
         "date",
@@ -100,7 +147,52 @@ def fetch_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataF
     df["symbol"] = symbol
     df = df[STANDARD_COLUMNS]
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+    df.attrs["provider"] = "eastmoney"
+    logger.info("东方财富历史行情拉取完成 标的={} 行数={}", symbol, len(df))
     return df
+
+
+def _fetch_tx_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """通过腾讯接口获取单标的历史日线。"""
+    import akshare as ak
+
+    logger.info("开始拉取腾讯历史行情 标的={} 开始={} 结束={}", symbol, start_date, end_date)
+    tx_symbol = _build_tx_symbol(symbol)
+    raw = ak.stock_zh_a_hist_tx(symbol=tx_symbol, start_date=start_date, end_date=end_date)
+    if raw.empty:
+        raise MarketDataUnavailableError(f"腾讯行情未返回可用行情，标的={symbol}")
+
+    df = raw.copy()
+    df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+    df["symbol"] = symbol
+    df["open"] = pd.to_numeric(df["open"], errors="coerce")
+    df["high"] = pd.to_numeric(df["high"], errors="coerce")
+    df["low"] = pd.to_numeric(df["low"], errors="coerce")
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df["volume"] = pd.to_numeric(df["amount"], errors="coerce")
+    df["amount"] = df["close"] * df["volume"]
+    for column in ["amplitude", "pct_change", "change", "turnover"]:
+        df[column] = pd.NA
+    df = df[STANDARD_COLUMNS]
+    df.attrs["provider"] = "tx"
+    logger.info("腾讯历史行情拉取完成 标的={} 行数={}", symbol, len(df))
+    return df
+
+
+def fetch_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """获取单标的历史日线，优先东财，失败时回退腾讯。"""
+    try:
+        return _fetch_eastmoney_daily_history(symbol, start_date, end_date)
+    except (requests.RequestException, MarketDataUnavailableError, KeyError, TypeError, ValueError) as exc:
+        logger.warning(
+            "东方财富历史行情拉取失败，回退腾讯行情 标的={} 开始={} 结束={} 异常类型={} 异常={}",
+            symbol,
+            start_date,
+            end_date,
+            type(exc).__name__,
+            exc,
+        )
+        return _fetch_tx_daily_history(symbol, start_date, end_date)
 
 
 def normalize_daily_history(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
@@ -126,31 +218,31 @@ def quality_checks(df: pd.DataFrame) -> list[str]:
     """执行基础质量检查。"""
     issues: list[str] = []
     if df.empty:
-        issues.append("dataframe is empty")
+        issues.append("数据为空")
         return issues
     if df["date"].isna().any():
-        issues.append("date contains null values")
+        issues.append("日期列存在空值")
     if df["date"].duplicated().any():
-        issues.append("date contains duplicate records")
+        issues.append("日期列存在重复记录")
     if df["date"].tolist() != sorted(df["date"].tolist()):
-        issues.append("date is not sorted ascending")
+        issues.append("日期列不是升序排列")
     for column in ["open", "high", "low", "close"]:
         if (pd.to_numeric(df[column], errors="coerce") <= 0).any():
-            issues.append(f"{column} contains non-positive values")
+            issues.append(f"{column} 列存在非正数")
     if (pd.to_numeric(df["volume"], errors="coerce") < 0).any():
-        issues.append("volume contains negative values")
+        issues.append("volume 列存在负数")
     high_too_low = pd.to_numeric(df["high"], errors="coerce") < pd.concat(
         [pd.to_numeric(df["open"], errors="coerce"), pd.to_numeric(df["close"], errors="coerce")],
         axis=1,
     ).max(axis=1)
     if high_too_low.any():
-        issues.append("high is lower than open or close in some rows")
+        issues.append("部分记录的 high 小于 open 或 close")
     low_too_high = pd.to_numeric(df["low"], errors="coerce") > pd.concat(
         [pd.to_numeric(df["open"], errors="coerce"), pd.to_numeric(df["close"], errors="coerce")],
         axis=1,
     ).min(axis=1)
     if low_too_high.any():
-        issues.append("low is higher than open or close in some rows")
+        issues.append("部分记录的 low 大于 open 或 close")
     return issues
 
 
@@ -203,144 +295,6 @@ def _build_synthetic_series(base: pd.DataFrame, symbols: list[str]) -> MarketPan
     return MarketPanel(close=close, volume=volume, amount=amount, source_mode="offline-seed")
 
 
-def _default_cache_root() -> Path:
-    """返回默认缓存根目录。"""
-    override = os.getenv(_CACHE_ENV_VAR)
-    if override:
-        return Path(override).expanduser()
-    return Path(__file__).resolve().parents[1] / _CACHE_SUBDIR
-
-
-def _state_path(cache_root: Path) -> Path:
-    """返回状态文件路径。"""
-    return cache_root / _STATE_FILENAME
-
-
-def _symbol_cache_path(cache_root: Path, symbol: str) -> Path:
-    """返回单标的缓存路径。"""
-    return cache_root / "symbols" / f"{symbol}.parquet"
-
-
-def _parse_date(value: str | pd.Timestamp) -> pd.Timestamp:
-    """把日期值转为归一化时间戳。"""
-    return pd.to_datetime(value).normalize()
-
-
-def _format_date(value: pd.Timestamp) -> str:
-    """把日期格式化为标准字符串。"""
-    return pd.Timestamp(value).normalize().strftime("%Y-%m-%d")
-
-
-def _compact_date(value: pd.Timestamp) -> str:
-    """把日期格式化为紧凑字符串。"""
-    return pd.Timestamp(value).normalize().strftime("%Y%m%d")
-
-
-def _ensure_history_frame(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
-    """把历史数据整理成缓存帧。"""
-    frame = df.copy()
-    if "date" not in frame.columns:
-        if isinstance(frame.index, pd.DatetimeIndex) or frame.index.name == "date":
-            frame = frame.reset_index()
-        elif "时间" in frame.columns:
-            frame = frame.rename(columns={"时间": "date"})
-        elif "日期" in frame.columns:
-            frame = frame.rename(columns={"日期": "date"})
-    if "date" not in frame.columns:
-        raise ValueError("history frame is missing a date column")
-    frame["date"] = pd.to_datetime(frame["date"]).dt.normalize()
-    frame["symbol"] = symbol
-    for column in ["close", "volume", "amount"]:
-        if column in frame.columns:
-            frame[column] = pd.to_numeric(frame[column], errors="coerce")
-        else:
-            frame[column] = pd.NA
-    frame = frame[_CACHE_COLUMNS].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
-    return frame
-
-
-def _read_cache_frame(path: Path) -> pd.DataFrame:
-    """读取缓存数据帧。"""
-    if not path.exists():
-        return pd.DataFrame(columns=_CACHE_COLUMNS)
-    try:
-        return pd.read_parquet(path)
-    except ImportError as exc:
-        raise RuntimeError("Parquet cache requires pyarrow or fastparquet") from exc
-
-
-def _write_cache_frame(df: pd.DataFrame, path: Path) -> None:
-    """写入缓存数据帧。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(f"{path.name}.tmp")
-    try:
-        df.to_parquet(tmp_path, index=False)
-    except ImportError as exc:
-        raise RuntimeError("Parquet cache requires pyarrow or fastparquet") from exc
-    tmp_path.replace(path)
-
-
-def _load_state(path: Path) -> dict[str, object]:
-    """读取缓存状态。"""
-    if not path.exists():
-        return {"version": 1, "updated_at": None, "symbols": {}}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {"version": 1, "updated_at": None, "symbols": {}}
-    if not isinstance(payload, dict):
-        return {"version": 1, "updated_at": None, "symbols": {}}
-    payload.setdefault("version", 1)
-    payload.setdefault("updated_at", None)
-    payload.setdefault("symbols", {})
-    return payload
-
-
-def _write_state(path: Path, payload: dict[str, object]) -> None:
-    """写入缓存状态。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(f"{path.name}.tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(path)
-
-
-def _missing_ranges(
-    requested_start: pd.Timestamp,
-    requested_end: pd.Timestamp,
-    cached_start: pd.Timestamp | None,
-    cached_end: pd.Timestamp | None,
-) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
-    """计算还需要补拉的日期区间。"""
-    if cached_start is None or cached_end is None:
-        return [(requested_start, requested_end)]
-
-    ranges: list[tuple[pd.Timestamp, pd.Timestamp]] = []
-    if requested_start < cached_start:
-        prefix_end = min(requested_end, cached_start - pd.Timedelta(days=1))
-        if prefix_end >= requested_start:
-            ranges.append((requested_start, prefix_end))
-    if requested_end > cached_end:
-        ranges.append((cached_end, requested_end))
-    return ranges
-
-
-def _merge_history_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
-    """合并多段缓存历史。"""
-    if not frames:
-        return pd.DataFrame(columns=_CACHE_COLUMNS)
-    merged = pd.concat(frames, ignore_index=True)
-    merged["date"] = pd.to_datetime(merged["date"]).dt.normalize()
-    merged["close"] = pd.to_numeric(merged["close"], errors="coerce")
-    merged["volume"] = pd.to_numeric(merged["volume"], errors="coerce")
-    merged["amount"] = pd.to_numeric(merged["amount"], errors="coerce")
-    merged = (
-        merged.sort_values("date", kind="mergesort")
-        .drop_duplicates(subset=["date"], keep="last")
-        .reset_index(drop=True)
-    )
-    return merged[_CACHE_COLUMNS]
-
-
 def sync_symbol_history(
     symbol: str,
     start_date: str,
@@ -348,81 +302,115 @@ def sync_symbol_history(
     *,
     cache_root: Path | None = None,
     fetcher: Callable[[str, str, str], pd.DataFrame] = fetch_daily_history,
-    read_cache: Callable[[Path], pd.DataFrame] = _read_cache_frame,
-    write_cache: Callable[[pd.DataFrame, Path], None] = _write_cache_frame,
+    read_cache: Callable[[Path], pd.DataFrame] = read_cache_frame,
+    write_cache: Callable[[pd.DataFrame, Path], None] = write_cache_frame,
 ) -> SyncResult:
     """同步单标的历史数据并更新缓存。"""
-    requested_start = _parse_date(start_date)
-    requested_end = _parse_date(end_date)
+    requested_start = parse_date(start_date)
+    requested_end = parse_date(end_date)
     if requested_start > requested_end:
-        raise ValueError("start_date must be earlier than or equal to end_date")
+        raise ValueError("开始日期不能晚于结束日期")
 
-    root = cache_root or _default_cache_root()
-    cache_path = _symbol_cache_path(root, symbol)
-    state_path = _state_path(root)
+    root = cache_root or default_cache_root()
+    cache_path = symbol_cache_path(root, symbol)
+    state_file = state_path(root)
 
     raw_cached = read_cache(cache_path)
-    cached_frame = _ensure_history_frame(raw_cached, symbol) if not raw_cached.empty else pd.DataFrame(columns=_CACHE_COLUMNS)
+    cached_frame = ensure_history_frame(raw_cached, symbol) if not raw_cached.empty else pd.DataFrame(columns=CACHE_COLUMNS)
     cached_start = pd.to_datetime(cached_frame["date"]).min() if not cached_frame.empty else None
     cached_end = pd.to_datetime(cached_frame["date"]).max() if not cached_frame.empty else None
-    fetch_ranges = _missing_ranges(requested_start, requested_end, cached_start, cached_end)
+    fetch_ranges = missing_ranges(requested_start, requested_end, cached_start, cached_end)
+    logger.info(
+        "开始同步 标的={} 请求区间=[{}, {}] 命中缓存={} 缓存开始={} 缓存结束={} 待拉取区间={}",
+        symbol,
+        format_date(requested_start),
+        format_date(requested_end),
+        not cached_frame.empty,
+        format_date(cached_start),
+        format_date(cached_end),
+        [(format_date(start), format_date(end)) for start, end in fetch_ranges],
+    )
 
     fetched_frames: list[pd.DataFrame] = []
     network_hit = False
+    network_source_mode = "network"
     for fetch_start, fetch_end in fetch_ranges:
-        raw = fetcher(symbol, _compact_date(fetch_start), _compact_date(fetch_end))
-        fetched_frames.append(_ensure_history_frame(raw, symbol))
+        raw = fetcher(symbol, compact_date(fetch_start), compact_date(fetch_end))
+        provider = str(raw.attrs.get("provider", "")).strip().lower()
+        if provider == "tx":
+            network_source_mode = "network-tx"
+        elif provider == "eastmoney":
+            network_source_mode = "network-eastmoney"
+        fetched_frames.append(ensure_history_frame(raw, symbol))
         network_hit = True
+        logger.info(
+            "区间拉取完成 标的={} 来源={}({}) 区间=[{}, {}] 行数={}",
+            symbol,
+            describe_source_mode("tx" if provider == "tx" else "eastmoney" if provider == "eastmoney" else provider or "network"),
+            provider or "unknown",
+            format_date(fetch_start),
+            format_date(fetch_end),
+            len(raw),
+        )
 
     cache_frames = [cached_frame] if not cached_frame.empty else []
     cache_frames.extend(fetched_frames)
-    merged_cache = _merge_history_frames(cache_frames)
+    merged_cache = merge_history_frames(cache_frames)
     if not merged_cache.empty:
         write_cache(merged_cache, cache_path)
 
-    state = _load_state(state_path)
+    state = load_state(state_file)
+    timestamp = updated_at()
     symbols_state = state.setdefault("symbols", {})
     source_mode = "offline-seed"
     if network_hit and not cached_frame.empty:
-        source_mode = "cache+network"
+        source_mode = f"cache+{network_source_mode}"
     elif network_hit:
-        source_mode = "network"
+        source_mode = network_source_mode
     elif not cached_frame.empty:
         source_mode = "cache"
 
     symbols_state[symbol] = {
         "cache_path": str(cache_path),
         "rows": int(len(merged_cache)),
-        "requested_start": _format_date(requested_start),
-        "requested_end": _format_date(requested_end),
-        "cache_start": _format_date(cached_start) if cached_start is not None else None,
-        "cache_end": _format_date(cached_end) if cached_end is not None else None,
-        "stored_start": _format_date(pd.to_datetime(merged_cache["date"]).min()) if not merged_cache.empty else None,
-        "stored_end": _format_date(pd.to_datetime(merged_cache["date"]).max()) if not merged_cache.empty else None,
-        "fetched_ranges": [[_format_date(start), _format_date(end)] for start, end in fetch_ranges],
+        "requested_start": format_date(requested_start),
+        "requested_end": format_date(requested_end),
+        "cache_start": format_date(cached_start) if cached_start is not None else None,
+        "cache_end": format_date(cached_end) if cached_end is not None else None,
+        "stored_start": format_date(pd.to_datetime(merged_cache["date"]).min()) if not merged_cache.empty else None,
+        "stored_end": format_date(pd.to_datetime(merged_cache["date"]).max()) if not merged_cache.empty else None,
+        "fetched_ranges": [[format_date(start), format_date(end)] for start, end in fetch_ranges],
         "network_hit": network_hit,
         "cache_hit": not cached_frame.empty,
         "source_mode": source_mode,
-        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "updated_at": timestamp,
     }
-    state["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    _write_state(state_path, state)
+    state["updated_at"] = timestamp
+    write_state(state_file, state)
 
     returned = merged_cache[
         (pd.to_datetime(merged_cache["date"]) >= requested_start)
         & (pd.to_datetime(merged_cache["date"]) <= requested_end)
     ].reset_index(drop=True)
     if returned.empty and merged_cache.empty:
-        returned = pd.DataFrame(columns=_CACHE_COLUMNS)
+        returned = pd.DataFrame(columns=CACHE_COLUMNS)
+    logger.info(
+        "同步完成 标的={} 数据来源={}({}) 返回行数={} 缓存行数={}",
+        symbol,
+        describe_source_mode(source_mode),
+        source_mode,
+        len(returned),
+        len(merged_cache),
+    )
 
     return SyncResult(
         frame=returned,
         cache_frame=merged_cache,
         cache_path=cache_path,
-        state_path=state_path,
+        state_path=state_file,
         cache_hit=not cached_frame.empty,
         network_hit=network_hit,
-        fetched_ranges=[(_format_date(start), _format_date(end)) for start, end in fetch_ranges],
+        fetched_ranges=[(format_date(start), format_date(end)) for start, end in fetch_ranges],
         source_mode=source_mode,
     )
 
@@ -431,10 +419,36 @@ def _build_market_panel(frames: list[pd.DataFrame], source_mode: str) -> MarketP
     """把多标的历史拼成市场面板。"""
     combined = pd.concat(frames, ignore_index=True)
     combined["date"] = pd.to_datetime(combined["date"])
-    close = combined.pivot(index="date", columns="symbol", values="close").sort_index().ffill().dropna(how="all")
-    volume = combined.pivot(index="date", columns="symbol", values="volume").sort_index().ffill().dropna(how="all")
-    amount = combined.pivot(index="date", columns="symbol", values="amount").sort_index().ffill().dropna(how="all")
+    close = combined.pivot(index="date", columns="symbol", values="close").sort_index()
+    volume = combined.pivot(index="date", columns="symbol", values="volume").sort_index()
+    amount = combined.pivot(index="date", columns="symbol", values="amount").sort_index()
+    complete_mask = close.notna().all(axis=1) & volume.notna().all(axis=1) & amount.notna().all(axis=1)
+    close = close.loc[complete_mask]
+    volume = volume.loc[complete_mask]
+    amount = amount.loc[complete_mask]
     return MarketPanel(close=close, volume=volume, amount=amount, source_mode=source_mode)
+
+
+def _resolve_panel_source_mode(sync_results: list[SyncResult]) -> str:
+    """把多标的同步来源聚合成统一面板来源。"""
+    source_modes = {result.source_mode for result in sync_results}
+    if "offline-seed" in source_modes:
+        return "offline-seed"
+    if any(mode.startswith("cache+network-tx") for mode in source_modes):
+        return "cache+tx"
+    if any(mode.startswith("cache+network-eastmoney") for mode in source_modes):
+        return "cache+eastmoney"
+    if any(mode.startswith("network-tx") for mode in source_modes):
+        return "tx"
+    if any(mode.startswith("network-eastmoney") for mode in source_modes):
+        return "eastmoney"
+    if "cache+network" in source_modes or ("network" in source_modes and "cache" in source_modes):
+        return "cache+network"
+    if "network" in source_modes:
+        return "network"
+    if "cache" in source_modes:
+        return "cache"
+    return "cache"
 
 
 def load_market_panel(
@@ -443,38 +457,64 @@ def load_market_panel(
     end_date: str,
     *,
     cache_root: Path | None = None,
+    allow_synthetic_fallback: bool = False,
 ) -> MarketPanel:
     """加载多标的市场面板。"""
+    logger.info(
+        "开始加载市场面板 标的={} 开始={} 结束={} 缓存目录={} 允许合成回退={}",
+        symbols,
+        start_date,
+        end_date,
+        cache_root,
+        allow_synthetic_fallback,
+    )
     sync_results: list[SyncResult] = []
-    for symbol in symbols:
-        try:
-            sync_result = sync_symbol_history(
-                symbol,
-                start_date,
-                end_date,
-                cache_root=cache_root,
-            )
+    try:
+        for symbol in symbols:
+            try:
+                sync_result = sync_symbol_history(
+                    symbol,
+                    start_date,
+                    end_date,
+                    cache_root=cache_root,
+                )
+            except (httpx.HTTPError, requests.RequestException):
+                if allow_synthetic_fallback:
+                    logger.warning("市场面板加载遇到网络异常，回退到合成数据 标的={}", symbols)
+                    base = _build_builtin_seed(start_date, end_date)
+                    return _build_synthetic_series(base, symbols)
+                raise
             if sync_result.frame.empty:
-                raise ValueError(f"no market data available for symbol {symbol}")
+                raise MarketDataUnavailableError(f"标的无可用行情数据：{symbol}")
             sync_results.append(sync_result)
-        except Exception:
-            sync_results = []
-            break
+    except MarketDataUnavailableError:
+        if allow_synthetic_fallback:
+            logger.warning("市场面板加载无可用数据，回退到合成数据 标的={}", symbols)
+            base = _build_builtin_seed(start_date, end_date)
+            return _build_synthetic_series(base, symbols)
+        raise
 
     if sync_results and len(sync_results) == len(symbols):
         frames = [result.frame for result in sync_results]
-        source_modes = {result.source_mode for result in sync_results}
-        if "offline-seed" in source_modes:
-            source_mode = "offline-seed"
-        elif "cache+network" in source_modes or ("network" in source_modes and "cache" in source_modes):
-            source_mode = "cache+network"
-        elif "network" in source_modes:
-            source_mode = "network"
-        elif "cache" in source_modes:
-            source_mode = "cache"
-        else:
-            source_mode = "cache"
-        return _build_market_panel(frames, source_mode=source_mode)
+        source_mode = _resolve_panel_source_mode(sync_results)
+        panel = _build_market_panel(frames, source_mode=source_mode)
+        if panel.close.empty:
+            if allow_synthetic_fallback:
+                logger.warning("市场面板没有完整截面数据，回退到合成数据 标的={}", symbols)
+                base = _build_builtin_seed(start_date, end_date)
+                return _build_synthetic_series(base, symbols)
+            raise MarketDataUnavailableError("没有可用的完整市场截面数据")
+        logger.info(
+            "市场面板加载完成 数据来源={}({}) 行数={} 标的={}",
+            describe_source_mode(panel.source_mode),
+            panel.source_mode,
+            len(panel.close),
+            list(panel.close.columns),
+        )
+        return panel
 
-    base = _build_builtin_seed(start_date, end_date)
-    return _build_synthetic_series(base, symbols)
+    if allow_synthetic_fallback:
+        logger.warning("市场面板不完整，回退到合成数据 标的={}", symbols)
+        base = _build_builtin_seed(start_date, end_date)
+        return _build_synthetic_series(base, symbols)
+    raise MarketDataUnavailableError("无法基于请求标的构建市场面板")
