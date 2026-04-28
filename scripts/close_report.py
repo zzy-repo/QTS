@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from _bootstrap import ROOT
-from qts.entrypoints import DEFAULT_CLOSE_REPORT_CONFIG, run_close_report_entry
+from qts.infra.entrypoints import DEFAULT_CLOSE_REPORT_CONFIG, run_close_report_entry
 
 from _entry_common import save_frame, save_text
 

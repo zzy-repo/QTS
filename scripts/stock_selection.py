@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from _bootstrap import ROOT
-from qts.entrypoints import DEFAULT_STOCK_SELECTION_CONFIG, run_stock_selection_entry
+from qts.infra.entrypoints import DEFAULT_STOCK_SELECTION_CONFIG, run_stock_selection_entry
 
 from _entry_common import save_frame, save_text
 

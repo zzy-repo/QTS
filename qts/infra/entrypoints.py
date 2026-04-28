@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 
+from ..core.data.models import MarketPanel
+from ..core.portfolio.results import SystemRunResult
 from .config import QTSConfig, build_system_from_config, load_market_from_config, load_qts_config
-from .engine import SystemRunResult
-from .models import MarketPanel
+from .models import EntryRun
 from .report import build_report, latest_signal_frame, normalize_signal_frame
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -15,20 +15,6 @@ CONFIG_DIR = REPO_ROOT / "configs"
 DEFAULT_BACKTEST_CONFIG = CONFIG_DIR / "backtest.json"
 DEFAULT_CLOSE_REPORT_CONFIG = CONFIG_DIR / "close_report.json"
 DEFAULT_STOCK_SELECTION_CONFIG = CONFIG_DIR / "stock_selection.json"
-
-
-@dataclass(frozen=True)
-class EntryRun:
-    """保存单入口运行结果。"""
-
-    name: str
-    config_path: Path | None
-    config: QTSConfig
-    market: MarketPanel
-    result: SystemRunResult
-    signals: pd.DataFrame
-    report: pd.DataFrame
-
 
 def resolve_entry_config_path(default_path: Path, config_path: str | Path | None = None) -> Path | None:
     """解析入口使用的配置路径。"""

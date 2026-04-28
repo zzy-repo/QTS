@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from .results import SystemRunResult, annualized_return
+from ..core.portfolio.results import SystemRunResult, annualized_return
 
 
 @dataclass(frozen=True)

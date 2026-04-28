@@ -5,8 +5,8 @@
 要求：
 
 - 只写 `qts/` 文件的总括。
-- 与 `qts/` 目录保持同步。
+- 与 `qts/` 目录保持同步，尤其是 `qts/core/` 与 `qts/infra/` 的边界。
 - 不记录 `lab/` 的实验细节。
 - 默认中文配置见 `configs/qts.config.json`。
-- 入口编排见 `qts/entrypoints.py`，统一报表与信号规范见 `qts/report.py`。
+- 入口编排见 `qts/infra/entrypoints.py`，统一报表与信号规范见 `qts/infra/report.py`。
 - 正式入口配置可使用 `configs/backtest.json`、`configs/close_report.json`、`configs/stock_selection.json`。

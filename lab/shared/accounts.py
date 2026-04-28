@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from typing import Any
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -11,7 +10,7 @@ class AccountState:
     cash: float
     frozen_cash: float = 0.0
     positions: dict[str, float] = field(default_factory=dict)
-    in_flight_orders: dict[str, dict[str, Any]] = field(default_factory=dict)
+    in_flight_orders: dict[str, dict[str, object]] = field(default_factory=dict)
     version: int = 0
 
     def equity(self, prices: pd.Series) -> float:
@@ -20,7 +19,7 @@ class AccountState:
             value += float(shares) * float(prices.get(symbol, 0.0))
         return float(value)
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self) -> dict[str, object]:
         return {
             "cash": self.cash,
             "frozen_cash": self.frozen_cash,
@@ -30,7 +29,7 @@ class AccountState:
         }
 
     @classmethod
-    def restore(cls, payload: dict[str, Any]) -> "AccountState":
+    def restore(cls, payload: dict[str, object]) -> "AccountState":
         return cls(
             cash=float(payload["cash"]),
             frozen_cash=float(payload.get("frozen_cash", 0.0)),
@@ -56,4 +55,3 @@ def reserve_cash(account: AccountState, order_id: str, notional: float) -> Accou
     next_state.in_flight_orders[order_id] = {"notional": notional, "status": "NEW"}
     next_state.version += 1
     return next_state
-

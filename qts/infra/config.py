@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Callable
 
-from .data_source import DEFAULT_UNIVERSE, load_market_panel
-from .models import StrategyInput
-from .strategy import momentum_signal, trend_follow_signal
-from .specs import StrategySpec
+import pandas as pd
+
+from ..core.data.data_source import DEFAULT_UNIVERSE, load_market_panel
+from ..core.data.models import StrategyInput
+from ..core.signal.specs import StrategySpec
+from ..core.signal.strategy import momentum_signal, trend_follow_signal
+from .models import MarketConfig, QTSConfig, StrategyConfig, SystemConfig
 
 STRATEGY_KIND_ALIASES = {
     "momentum": "momentum",
@@ -36,7 +39,7 @@ EXECUTION_MODE_ALIASES = {
 }
 
 
-def _pick(mapping: dict[str, Any], *keys: str, default: Any = None) -> Any:
+def _pick(mapping: dict[str, object], *keys: str, default: object = None) -> object:
     """从候选键中取配置值。"""
     for key in keys:
         if key in mapping:
@@ -44,90 +47,41 @@ def _pick(mapping: dict[str, Any], *keys: str, default: Any = None) -> Any:
     return default
 
 
-def _alias(mapping: dict[str, str], value: Any, default: str) -> str:
+def _alias(mapping: dict[str, str], value: object, default: str) -> str:
     """把配置值映射到内部标准名。"""
     text = str(value)
     return mapping.get(text, mapping.get(text.lower(), default))
 
 
-@dataclass(frozen=True)
-class MarketConfig:
-    """描述市场数据配置。"""
+def _build_strategy_builder(kind: str, *, lookback: int, top_n: int) -> Callable[[StrategyInput], pd.DataFrame]:
+    """构建指定策略类型的信号生成器。"""
+    if kind == "momentum":
+        def builder(data: StrategyInput) -> pd.DataFrame:
+            return momentum_signal(
+                StrategyInput(
+                    close=data.close,
+                    volume=data.volume,
+                    amount=data.amount,
+                    lookback=lookback,
+                    top_n=top_n,
+                )
+            )
 
-    symbols: list[str]
-    start_date: str
-    end_date: str
+        return builder
+    if kind == "trend":
+        def builder(data: StrategyInput) -> pd.DataFrame:
+            return trend_follow_signal(
+                StrategyInput(
+                    close=data.close,
+                    volume=data.volume,
+                    amount=data.amount,
+                    lookback=lookback,
+                    top_n=top_n,
+                )
+            )
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "标的池": list(self.symbols),
-            "开始日期": self.start_date,
-            "结束日期": self.end_date,
-        }
-
-
-@dataclass(frozen=True)
-class StrategyConfig:
-    """描述单个策略配置。"""
-
-    name: str
-    kind: str
-    lookback: int = 20
-    top_n: int = 3
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "名称": self.name,
-            "类型": {"momentum": "动量", "trend": "趋势"}.get(self.kind, self.kind),
-            "回看周期": self.lookback,
-            "选取数量": self.top_n,
-        }
-
-
-@dataclass(frozen=True)
-class SystemConfig:
-    """描述系统运行配置。"""
-
-    optimizer_mode: str = "score"
-    execution_mode: str = "backtest"
-    initial_cash: float = 1_000_000.0
-    lot_size: int = 100
-    capital_caps: dict[str, float] = field(default_factory=dict)
-    optimizer_cap: float = 0.4
-    max_adv_pct: float = 0.02
-    slippage_base_bps: float = 1.0
-    slippage_participation_scale: float = 0.035
-    slippage_vol_scale: float = 0.15
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "优化器": {"score": "打分", "equal": "等权", "capped": "截断"}.get(self.optimizer_mode, self.optimizer_mode),
-            "执行器": {"backtest": "回测", "sim": "模拟", "paper": "纸面"}.get(self.execution_mode, self.execution_mode),
-            "初始资金": self.initial_cash,
-            "手数": self.lot_size,
-            "资本上限": dict(self.capital_caps),
-            "优化器截断上限": self.optimizer_cap,
-            "最大ADV占比": self.max_adv_pct,
-            "基础滑点bp": self.slippage_base_bps,
-            "参与率滑点系数": self.slippage_participation_scale,
-            "波动率滑点系数": self.slippage_vol_scale,
-        }
-
-
-@dataclass(frozen=True)
-class QTSConfig:
-    """描述完整系统配置。"""
-
-    market: MarketConfig
-    system: SystemConfig
-    strategies: list[StrategyConfig]
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "市场": self.market.to_dict(),
-            "系统": self.system.to_dict(),
-            "策略": [strategy.to_dict() for strategy in self.strategies],
-        }
+        return builder
+    raise ValueError(f"不支持的策略类型: {kind}")
 
 
 def default_qts_config() -> QTSConfig:
@@ -223,28 +177,18 @@ def save_qts_config(config: QTSConfig, path: str | Path) -> Path:
     return target
 
 
-def build_strategies_from_config(config: QTSConfig):
+def build_strategies_from_config(config: QTSConfig) -> list[StrategySpec]:
     """按配置构建策略列表。"""
-    strategies = []
+    strategies: list[StrategySpec] = []
     for item in config.strategies:
-        if item.kind == "momentum":
-            builder = lambda data, lookback=item.lookback, top_n=item.top_n: momentum_signal(
-                StrategyInput(close=data.close, volume=data.volume, amount=data.amount, lookback=lookback, top_n=top_n)
-            )
-        elif item.kind == "trend":
-            builder = lambda data, lookback=item.lookback, top_n=item.top_n: trend_follow_signal(
-                StrategyInput(close=data.close, volume=data.volume, amount=data.amount, lookback=lookback, top_n=top_n)
-            )
-        else:
-            raise ValueError(f"不支持的策略类型: {item.kind}")
-
+        builder = _build_strategy_builder(item.kind, lookback=item.lookback, top_n=item.top_n)
         strategies.append(StrategySpec(name=item.name, builder=builder, lookback=item.lookback, top_n=item.top_n))
     return strategies
 
 
 def build_system_from_config(config: QTSConfig):
     """按配置构建系统门面。"""
-    from .engine import MultiDecisionSystem
+    from .system import MultiDecisionSystem
 
     return MultiDecisionSystem(
         strategies=build_strategies_from_config(config),

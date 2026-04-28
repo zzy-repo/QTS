@@ -1,11 +1,38 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
-from .models import MarketPanel
-from .pipeline import Executor, Optimizer, PortfolioManager, SignalGenerator, SystemPipeline
-from .results import SystemRunResult
-from .specs import StrategySpec
+import pandas as pd
+
+from ..core.data.models import MarketPanel
+from ..core.execution.engine import Executor
+from ..core.optimize.engine import Optimizer
+from ..core.portfolio.engine import PortfolioManager
+from ..core.portfolio.results import SystemRunResult
+from ..core.signal.engine import SignalGenerator
+from ..core.signal.specs import StrategySpec
+from .diagnostics import risk_state_machine
+
+
+@dataclass
+class SystemPipeline:
+    """编排信号、优化、执行和组合管理。"""
+
+    signal_generator: SignalGenerator
+    optimizer: Optimizer
+    executor: Executor
+    portfolio_manager: PortfolioManager
+
+    def run(self, market: MarketPanel) -> SystemRunResult:
+        """运行完整处理流水线。"""
+        strategy_signals = self.signal_generator.generate(market)
+        return self.portfolio_manager.build(
+            strategies=self.signal_generator.strategies,
+            strategy_signals=strategy_signals,
+            market=market,
+            optimizer=self.optimizer,
+            executor=self.executor,
+        )
 
 
 @dataclass
@@ -55,4 +82,10 @@ class MultiDecisionSystem:
         """运行完整多策略系统。"""
         if not self.strategies:
             raise ValueError("at least one strategy is required")
-        return self.pipeline.run(market)
+        result = self.pipeline.run(market)
+        risk_frame = risk_state_machine(
+            result.aggregate_equity["equity"] if not result.aggregate_equity.empty else pd.Series(dtype=float)
+        )
+        snapshot = dict(result.snapshot)
+        snapshot["risk_state_rows"] = len(risk_frame)
+        return replace(result, snapshot=snapshot)

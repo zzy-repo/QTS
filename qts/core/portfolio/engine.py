@@ -1,68 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 import pandas as pd
 
+from ..data.models import ExecutionRun, MarketPanel
+from ..signal.specs import StrategySpec
 from .allocation import allocate_capital
-from .diagnostics import risk_state_machine
-from .execution import ExecutionRun
-from .models import MarketPanel, StrategyInput
-from .optimization import build_optimizers
-from .resilience import build_execution_adapters
 from .results import StrategyRunResult, SystemRunResult, annualized_return
-from .specs import StrategySpec
 
 
-@dataclass(frozen=True)
-class SignalGenerator:
-    """生成策略信号。"""
+class _OptimizerLike(Protocol):
+    mode: str
 
-    strategies: list[StrategySpec]
-
-    def generate(self, market: MarketPanel) -> pd.DataFrame:
-        """把市场数据转换为统一信号表。"""
-        frames: list[pd.DataFrame] = []
-        for spec in self.strategies:
-            data = StrategyInput(
-                close=market.close,
-                volume=market.volume,
-                amount=market.amount,
-                lookback=spec.lookback,
-                top_n=spec.top_n,
-            )
-            signals = spec.builder(data).copy()
-            if signals.empty:
-                continue
-            signals["strategy"] = spec.name
-            frames.append(signals)
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    def optimize(self, signals: pd.DataFrame) -> pd.DataFrame: ...
 
 
-@dataclass(frozen=True)
-class Optimizer:
-    """把信号转换成目标权重。"""
-
-    mode: str = "score"
-    capped_cap: float = 0.4
-
-    def optimize(self, signals: pd.DataFrame) -> pd.DataFrame:
-        """执行选定的优化器。"""
-        optimizer = build_optimizers(capped_cap=self.capped_cap).get(self.mode)
-        if optimizer is None:
-            raise ValueError(f"unknown optimizer mode: {self.mode}")
-        return optimizer.run(signals)
-
-
-@dataclass(frozen=True)
-class Executor:
-    """把目标权重执行成成交结果。"""
-
-    mode: str = "backtest"
-    slippage_base_bps: float = 1.0
-    participation_scale: float = 0.035
-    vol_scale: float = 0.15
-    max_adv_pct: float = 0.02
+class _ExecutorLike(Protocol):
+    mode: str
 
     def execute(
         self,
@@ -71,17 +27,7 @@ class Executor:
         *,
         initial_cash: float = 1_000_000.0,
         lot_size: int = 100,
-    ) -> ExecutionRun:
-        """执行目标组合。"""
-        adapter = build_execution_adapters(
-            slippage_base_bps=self.slippage_base_bps,
-            participation_scale=self.participation_scale,
-            vol_scale=self.vol_scale,
-            max_adv_pct=self.max_adv_pct,
-        ).get(self.mode)
-        if adapter is None:
-            raise ValueError(f"unknown execution mode: {self.mode}")
-        return adapter.run(target, market, initial_cash=initial_cash, lot_size=lot_size)
+    ) -> ExecutionRun: ...
 
 
 @dataclass(frozen=True)
@@ -98,8 +44,8 @@ class PortfolioManager:
         strategies: list[StrategySpec],
         strategy_signals: pd.DataFrame,
         market: MarketPanel,
-        optimizer: Optimizer,
-        executor: Executor,
+        optimizer: _OptimizerLike,
+        executor: _ExecutorLike,
     ) -> SystemRunResult:
         """生成完整系统运行结果。"""
         allocation = allocate_capital(strategy_signals, total_cash=self.initial_cash, caps=self.capital_caps)
@@ -108,7 +54,10 @@ class PortfolioManager:
         strategy_runs: list[StrategyRunResult] = []
         pnl_frames: list[pd.DataFrame] = []
         for spec in strategies:
-            signals = strategy_signals[strategy_signals["strategy"] == spec.name].copy()
+            if "strategy" in strategy_signals.columns and not strategy_signals.empty:
+                signals = strategy_signals[strategy_signals["strategy"] == spec.name].copy()
+            else:
+                signals = strategy_signals.iloc[0:0].copy()
             optimized = optimizer.optimize(signals)
             target = optimized[["date", "symbol", "weight"]] if not optimized.empty else pd.DataFrame(columns=["date", "symbol", "weight"])
             allocation_cash = float(alloc_map.get(spec.name, 0.0))
@@ -154,7 +103,6 @@ class PortfolioManager:
             )
             aggregate_equity = pd.DataFrame(columns=["date", "equity"])
 
-        risk_frame = risk_state_machine(aggregate_equity["equity"] if not aggregate_equity.empty else pd.Series(dtype=float))
         snapshot = {
             "strategy_names": [spec.name for spec in strategies],
             "optimizer_mode": optimizer.mode,
@@ -162,7 +110,6 @@ class PortfolioManager:
             "initial_cash": self.initial_cash,
             "lot_size": self.lot_size,
             "allocation_rows": len(allocation.allocation),
-            "risk_state_rows": len(risk_frame),
         }
         return SystemRunResult(
             strategy_runs=strategy_runs,
@@ -171,25 +118,4 @@ class PortfolioManager:
             aggregate_pnl=aggregate_pnl,
             aggregate_equity=aggregate_equity,
             snapshot=snapshot,
-        )
-
-
-@dataclass(frozen=True)
-class SystemPipeline:
-    """编排信号、优化、执行和组合管理。"""
-
-    signal_generator: SignalGenerator
-    optimizer: Optimizer
-    executor: Executor
-    portfolio_manager: PortfolioManager
-
-    def run(self, market: MarketPanel) -> SystemRunResult:
-        """运行完整处理流水线。"""
-        strategy_signals = self.signal_generator.generate(market)
-        return self.portfolio_manager.build(
-            strategies=self.signal_generator.strategies,
-            strategy_signals=strategy_signals,
-            market=market,
-            optimizer=self.optimizer,
-            executor=self.executor,
         )

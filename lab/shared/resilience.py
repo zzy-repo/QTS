@@ -21,31 +21,40 @@ def fingerprint_frame(frame: pd.DataFrame) -> str:
 
 
 def build_execution_adapters() -> dict[str, ExecutionAdapter]:
+    def run_backtest(target, market):
+        return execute_rebalance(target, market, initial_cash=1_000_000.0, lot_size=100)
+
+    def run_sim(target, market):
+        return execute_rebalance(
+            target,
+            market,
+            initial_cash=1_000_000.0,
+            lot_size=100,
+            slippage_fn=dynamic_slippage_cost,
+        )
+
+    def run_paper(target, market):
+        return execute_rebalance(
+            target,
+            market,
+            initial_cash=1_000_000.0,
+            lot_size=100,
+            max_adv_pct=0.02,
+            slippage_fn=dynamic_slippage_cost,
+        )
+
     return {
         "backtest": ExecutionAdapter(
             name="backtest",
-            run=lambda target, market: execute_rebalance(target, market, initial_cash=1_000_000.0, lot_size=100),
+            run=run_backtest,
         ),
         "sim": ExecutionAdapter(
             name="sim",
-            run=lambda target, market: execute_rebalance(
-                target,
-                market,
-                initial_cash=1_000_000.0,
-                lot_size=100,
-                slippage_fn=dynamic_slippage_cost,
-            ),
+            run=run_sim,
         ),
         "paper": ExecutionAdapter(
             name="paper",
-            run=lambda target, market: execute_rebalance(
-                target,
-                market,
-                initial_cash=1_000_000.0,
-                lot_size=100,
-                max_adv_pct=0.02,
-                slippage_fn=dynamic_slippage_cost,
-            ),
+            run=run_paper,
         ),
     }
 

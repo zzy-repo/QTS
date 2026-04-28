@@ -36,7 +36,7 @@ def _memory_cache_probe() -> dict[str, object]:
     def write_cache(frame: pd.DataFrame, path: Path) -> None:
         cache_store[path] = frame.copy()
 
-    from qts.data_source import sync_symbol_history
+    from qts.core.data.data_source import sync_symbol_history
 
     first = sync_symbol_history(
         "000001",
@@ -141,4 +141,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

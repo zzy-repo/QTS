@@ -56,14 +56,21 @@ def capped_optimizer(signals: pd.DataFrame, cap: float = 0.4) -> pd.DataFrame:
         return frame
     frame = frame.copy()
     frame["weight"] = frame["weight"].clip(lower=0.0, upper=cap)
-    frame["weight"] = frame.groupby("date")["weight"].transform(lambda s: s / s.sum() if s.sum() > 0 else s)
+    def _normalize(group: pd.Series) -> pd.Series:
+        total = float(group.sum())
+        return group / total if total > 0 else group
+
+    frame["weight"] = frame.groupby("date")["weight"].transform(_normalize)
     frame["optimizer"] = "capped"
     return frame
 
 
 def build_optimizers() -> dict[str, OptimizerAdapter]:
+    def capped_run(signals: pd.DataFrame) -> pd.DataFrame:
+        return capped_optimizer(signals, cap=0.4)
+
     return {
         "equal": OptimizerAdapter(name="equal", run=equal_weight_optimizer),
         "score": OptimizerAdapter(name="score", run=score_weight_optimizer),
-        "capped": OptimizerAdapter(name="capped", run=lambda signals: capped_optimizer(signals, cap=0.4)),
+        "capped": OptimizerAdapter(name="capped", run=capped_run),
     }

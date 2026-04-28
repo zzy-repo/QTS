@@ -5,7 +5,7 @@ from typing import Callable
 
 import pandas as pd
 
-from .models import StrategyInput
+from ..data.models import StrategyInput
 
 
 @dataclass(frozen=True)

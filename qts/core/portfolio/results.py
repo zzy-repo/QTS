@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from .allocation import AllocationResult
-from .execution import ExecutionRun
+from ..data.models import ExecutionRun
 
 TRADING_DAYS_PER_YEAR = 252
 

@@ -5,7 +5,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-from .models import ExecutionRun, MarketPanel
+from ..data.models import ExecutionRun, MarketPanel
 
 
 def _annualized_return(total_return: float, periods: int, trading_days_per_year: int = 252) -> float:
