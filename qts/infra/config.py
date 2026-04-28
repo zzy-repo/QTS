@@ -38,6 +38,9 @@ EXECUTION_MODE_ALIASES = {
     "纸面": "paper",
 }
 
+DEFAULT_START_DATE = "20240102"
+DEFAULT_END_DATE = "20240315"
+
 
 def _pick(mapping: dict[str, object], *keys: str, default: object = None) -> object:
     """从候选键中取配置值。"""
@@ -89,8 +92,8 @@ def default_qts_config() -> QTSConfig:
     return QTSConfig(
         market=MarketConfig(
             symbols=list(DEFAULT_UNIVERSE),
-            start_date="20240102",
-            end_date="20240315",
+            start_date=DEFAULT_START_DATE,
+            end_date=DEFAULT_END_DATE,
         ),
         system=SystemConfig(
             optimizer_mode="score",
@@ -114,7 +117,7 @@ def default_qts_config() -> QTSConfig:
 def load_qts_config(path: str | Path | None = None) -> QTSConfig:
     """加载系统配置。"""
     if path is None:
-        repo_root = Path(__file__).resolve().parents[1]
+        repo_root = Path(__file__).resolve().parents[2]
         candidates = [
             repo_root / "configs" / "qts.config.json",
         ]
@@ -136,8 +139,8 @@ def load_qts_config(path: str | Path | None = None) -> QTSConfig:
 
     market = MarketConfig(
         symbols=list(_pick(market_raw, "标的池", "symbols", default=DEFAULT_UNIVERSE)),
-        start_date=str(_pick(market_raw, "开始日期", "start_date", default="20240102")),
-        end_date=str(_pick(market_raw, "结束日期", "end_date", default="20240315")),
+        start_date=str(_pick(market_raw, "开始日期", "start_date", default=DEFAULT_START_DATE)),
+        end_date=str(_pick(market_raw, "结束日期", "end_date", default=DEFAULT_END_DATE)),
     )
     system = SystemConfig(
         optimizer_mode=_alias(OPTIMIZER_MODE_ALIASES, _pick(system_raw, "优化器", "optimizer_mode", default="score"), "score"),

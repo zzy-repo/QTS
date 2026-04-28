@@ -10,11 +10,12 @@ from .config import QTSConfig, build_system_from_config, load_market_from_config
 from .models import EntryRun
 from .report import build_report, latest_signal_frame, normalize_signal_frame
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO_ROOT / "configs"
 DEFAULT_BACKTEST_CONFIG = CONFIG_DIR / "backtest.json"
 DEFAULT_CLOSE_REPORT_CONFIG = CONFIG_DIR / "close_report.json"
 DEFAULT_STOCK_SELECTION_CONFIG = CONFIG_DIR / "stock_selection.json"
+
 
 def resolve_entry_config_path(default_path: Path, config_path: str | Path | None = None) -> Path | None:
     """解析入口使用的配置路径。"""
@@ -22,9 +23,6 @@ def resolve_entry_config_path(default_path: Path, config_path: str | Path | None
         return Path(config_path)
     if default_path.exists():
         return default_path
-    nested_default = REPO_ROOT / "configs" / default_path.name
-    if nested_default.exists():
-        return nested_default
     return None
 
 

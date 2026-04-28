@@ -45,28 +45,35 @@ def _build_backtest_report(frame: pd.DataFrame) -> pd.DataFrame:
     """生成回测报表。"""
     normalized = normalize_signal_frame(frame)
     if normalized.empty:
-        return pd.DataFrame(columns=["section", "date", "signal_count", "avg_score", "avg_weight", "gross_return", "equity", "cum_return"])
-
-    daily = (
-        normalized.groupby("date", as_index=False)
-        .agg(
-            signal_count=("symbol", "size"),
-            avg_score=("score", "mean"),
-            avg_weight=("weight", "mean"),
+        return pd.DataFrame(
+            columns=[
+                "section",
+                "date",
+                "signal_date",
+                "signal_count",
+                "avg_score",
+                "avg_weight",
+                "gross_return",
+                "equity",
+                "cum_return",
+            ]
         )
-        .sort_values("date")
-        .reset_index(drop=True)
+
+    daily = normalized.groupby("date", as_index=False).agg(
+        signal_count=("symbol", "size"),
+        avg_score=("score", "mean"),
+        avg_weight=("weight", "mean"),
     )
+    if "signal_date" in normalized.columns:
+        daily["signal_date"] = normalized.groupby("date")["signal_date"].first().to_numpy()
+    else:
+        daily["signal_date"] = daily["date"]
+    daily = daily.sort_values("date").reset_index(drop=True)
     if {"gross_return", "equity", "cum_return"}.issubset(normalized.columns):
-        enriched = (
-            normalized.groupby("date", as_index=False)
-            .agg(
-                gross_return=("gross_return", "first"),
-                equity=("equity", "first"),
-                cum_return=("cum_return", "first"),
-            )
-            .sort_values("date")
-            .reset_index(drop=True)
+        enriched = normalized.groupby("date", as_index=False).agg(
+            gross_return=("gross_return", "first"),
+            equity=("equity", "first"),
+            cum_return=("cum_return", "first"),
         )
         daily = daily.merge(enriched, on="date", how="left")
 
@@ -75,6 +82,7 @@ def _build_backtest_report(frame: pd.DataFrame) -> pd.DataFrame:
             {
                 "section": "summary",
                 "date": None,
+                "signal_date": None,
                 "signal_count": int(len(normalized)),
                 "avg_score": float(normalized["score"].mean()) if normalized["score"].notna().any() else None,
                 "avg_weight": float(normalized["weight"].mean()) if normalized["weight"].notna().any() else None,

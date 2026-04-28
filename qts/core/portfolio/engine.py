@@ -72,7 +72,7 @@ class PortfolioManager:
                 )
             )
             if not execution.pnl.empty:
-                frame = execution.pnl[["date", "gross_return"]].copy()
+                frame = execution.pnl[["date", "signal_date", "gross_return"]].copy()
                 frame["strategy"] = spec.name
                 frame["allocation_weight"] = allocation_cash / self.initial_cash if self.initial_cash else 0.0
                 pnl_frames.append(frame)
@@ -83,6 +83,7 @@ class PortfolioManager:
             aggregate_pnl = combined.groupby("date", as_index=False).agg(
                 gross_return=("weighted_return", "sum"),
                 allocation_weight=("allocation_weight", "sum"),
+                signal_date=("signal_date", "first"),
             )
             aggregate_pnl = aggregate_pnl.sort_values("date").reset_index(drop=True)
             equity = 1.0
@@ -99,7 +100,7 @@ class PortfolioManager:
             )
         else:
             aggregate_pnl = pd.DataFrame(
-                columns=["date", "gross_return", "allocation_weight", "equity", "cum_return", "annualized_return"]
+                columns=["date", "signal_date", "gross_return", "allocation_weight", "equity", "cum_return", "annualized_return"]
             )
             aggregate_equity = pd.DataFrame(columns=["date", "equity"])
 

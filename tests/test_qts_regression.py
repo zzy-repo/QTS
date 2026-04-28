@@ -6,7 +6,7 @@ import pandas as pd
 
 from qts.core.data.models import MarketPanel
 from qts.infra.config import build_system_from_config, default_qts_config, load_qts_config, save_qts_config
-from qts.infra.entrypoints import run_close_report_entry, run_stock_selection_entry
+from qts.infra.entrypoints import DEFAULT_BACKTEST_CONFIG, run_backtest_entry, run_close_report_entry, run_stock_selection_entry
 
 
 def _build_synthetic_market() -> MarketPanel:
@@ -44,6 +44,11 @@ def test_system_builds_and_runs_on_synthetic_market() -> None:
     assert result.snapshot["risk_state_rows"] >= 0
 
 
+def test_default_backtest_config_points_to_repo_root() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    assert DEFAULT_BACKTEST_CONFIG == repo_root / "configs" / "backtest.json"
+
+
 def test_entrypoints_use_latest_signals(monkeypatch) -> None:
     market = _build_synthetic_market()
 
@@ -51,9 +56,11 @@ def test_entrypoints_use_latest_signals(monkeypatch) -> None:
 
     monkeypatch.setattr(entrypoints_module, "load_market_from_config", lambda config, cache_root=None: market)
 
+    backtest_run = run_backtest_entry()
     close_run = run_close_report_entry()
     stock_run = run_stock_selection_entry()
 
+    assert "signal_date" in backtest_run.result.aggregate_pnl.columns
     assert close_run.signals["date"].nunique() == 1
     assert stock_run.signals["date"].nunique() == 1
     assert "decision" in close_run.report.columns
