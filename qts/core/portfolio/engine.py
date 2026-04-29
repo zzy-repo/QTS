@@ -6,7 +6,7 @@ from typing import Protocol
 import pandas as pd
 
 from ..data.models import ExecutionRun, MarketPanel
-from ..signal.specs import StrategySpec
+from ..strategy.specs import StrategySpec
 from .allocators.base import AllocationContext, AllocationResult
 from .results import StrategyRunResult, SystemRunResult, daily_pnl_view, rolling_annualized_return
 

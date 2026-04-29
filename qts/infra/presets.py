@@ -8,7 +8,7 @@ from .config import (
 )
 from .system import MultiDecisionSystem
 from .reporter import summarize_system_run
-from ..core.signal.specs import StrategySpec
+from ..core.strategy.specs import StrategySpec
 
 
 def build_default_strategies() -> list[StrategySpec]:

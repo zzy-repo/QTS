@@ -11,8 +11,8 @@ from ..core.optimize.engine import Optimizer
 from ..core.portfolio.engine_allocator import Allocator
 from ..core.portfolio.engine import PortfolioManager
 from ..core.portfolio.results import SystemRunResult, daily_pnl_view
-from ..core.signal.engine import SignalGenerator
-from ..core.signal.specs import StrategySpec
+from ..core.strategy.engine import SignalGenerator
+from ..core.strategy.specs import StrategySpec
 
 
 @dataclass

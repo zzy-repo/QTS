@@ -32,14 +32,16 @@ class StrategyConfig:
     """描述单个策略配置。"""
 
     name: str
-    kind: str
+    strategy_kind: str
+    factor_kind: str
     lookback: int = 20
     top_n: int = 3
 
     def to_dict(self) -> dict[str, object]:
         return {
             "名称": self.name,
-            "类型": {"momentum": "动量", "trend": "趋势"}.get(self.kind, self.kind),
+            "策略类型": {"single_factor": "单因子"}.get(self.strategy_kind, self.strategy_kind),
+            "因子类型": {"momentum": "动量", "trend": "趋势", "sharpe": "夏普"}.get(self.factor_kind, self.factor_kind),
             "回看周期": self.lookback,
             "选取数量": self.top_n,
         }

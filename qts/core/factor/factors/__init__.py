@@ -1,4 +1,4 @@
-"""Signal factor package."""
+"""Concrete factor implementations."""
 
 from .momentum import momentum_signal
 from .sharpe import sharpe_signal

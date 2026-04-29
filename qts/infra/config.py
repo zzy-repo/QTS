@@ -5,11 +5,16 @@ from dataclasses import replace
 from pathlib import Path
 
 from ..core.data.data_source import DEFAULT_UNIVERSE, load_market_panel
-from ..core.signal import build_strategy_spec
-from ..core.signal.specs import StrategySpec
+from ..core.strategy import build_strategy_spec
+from ..core.strategy.specs import StrategySpec
 from .models import MarketConfig, QTSConfig, StrategyConfig, SystemConfig
 
 STRATEGY_KIND_ALIASES = {
+    "single_factor": "single_factor",
+    "单因子": "single_factor",
+}
+
+FACTOR_KIND_ALIASES = {
     "momentum": "momentum",
     "动量": "momentum",
     "trend": "trend",
@@ -53,6 +58,31 @@ EXECUTION_MODE_ALIASES = {
 
 DEFAULT_START_DATE = "20240102"
 DEFAULT_END_DATE = "20240315"
+
+
+def _require_absent_legacy_strategy_keys(raw: dict[str, object], *, index: int) -> None:
+    """拒绝旧版策略配置字段，避免静默误读。"""
+    legacy_keys = [key for key in ("类型", "type", "kind") if key in raw]
+    if legacy_keys:
+        keys_text = ", ".join(legacy_keys)
+        raise ValueError(
+            f"策略配置[{index}] 仍在使用旧字段 {keys_text}；"
+            "请改用“策略类型/strategy_kind”和“因子类型/factor_kind”"
+        )
+
+
+def _require_strategy_keys(raw: dict[str, object], *, index: int) -> None:
+    """确保新策略配置字段完整。"""
+    strategy_key_missing = "策略类型" not in raw and "strategy_kind" not in raw
+    factor_key_missing = "因子类型" not in raw and "factor_kind" not in raw
+    missing: list[str] = []
+    if strategy_key_missing:
+        missing.append("策略类型/strategy_kind")
+    if factor_key_missing:
+        missing.append("因子类型/factor_kind")
+    if missing:
+        missing_text = "、".join(missing)
+        raise ValueError(f"策略配置[{index}] 缺少必要字段：{missing_text}")
 
 
 def _pick(mapping: dict[str, object], *keys: str, default: object = None) -> object:
@@ -129,10 +159,13 @@ def _build_strategy_configs(payload: dict[str, object]) -> list[StrategyConfig]:
     for index, raw in enumerate(strategies_raw):
         if not isinstance(raw, dict):
             continue
+        _require_absent_legacy_strategy_keys(raw, index=index)
+        _require_strategy_keys(raw, index=index)
         strategies.append(
             StrategyConfig(
                 name=str(_pick(raw, "名称", "name", default=f"策略{index + 1}")),
-                kind=_alias(STRATEGY_KIND_ALIASES, _pick(raw, "类型", "type", default="momentum"), "momentum"),
+                strategy_kind=_alias(STRATEGY_KIND_ALIASES, _pick(raw, "策略类型", "strategy_kind"), "single_factor"),
+                factor_kind=_alias(FACTOR_KIND_ALIASES, _pick(raw, "因子类型", "factor_kind"), "momentum"),
                 lookback=int(_pick(raw, "回看周期", "lookback", default=20)),
                 top_n=int(_pick(raw, "选取数量", "top_n", default=3)),
             )
@@ -162,8 +195,8 @@ def default_qts_config() -> QTSConfig:
             slippage_vol_scale=0.15,
         ),
         strategies=[
-            StrategyConfig(name="momentum", kind="momentum", lookback=20, top_n=3),
-            StrategyConfig(name="trend", kind="trend", lookback=30, top_n=3),
+            StrategyConfig(name="momentum", strategy_kind="single_factor", factor_kind="momentum", lookback=20, top_n=3),
+            StrategyConfig(name="trend", strategy_kind="single_factor", factor_kind="trend", lookback=30, top_n=3),
         ],
     )
 
@@ -203,7 +236,13 @@ def save_qts_config(config: QTSConfig, path: str | Path) -> Path:
 def build_strategies_from_config(config: QTSConfig) -> list[StrategySpec]:
     """按配置构建策略列表。"""
     return [
-        build_strategy_spec(item.name, item.kind, lookback=item.lookback, top_n=item.top_n)
+        build_strategy_spec(
+            item.name,
+            strategy_kind=item.strategy_kind,
+            factor_kind=item.factor_kind,
+            lookback=item.lookback,
+            top_n=item.top_n,
+        )
         for item in config.strategies
     ]
 
