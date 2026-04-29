@@ -9,8 +9,8 @@ import pandas as pd
 
 from ..core.data.data_source import DEFAULT_UNIVERSE, load_market_panel
 from ..core.data.models import StrategyInput
+from ..core.signal import momentum_signal, sharpe_signal, trend_follow_signal
 from ..core.signal.specs import StrategySpec
-from ..core.signal.strategy import momentum_signal, sharpe_signal, trend_follow_signal
 from .models import MarketConfig, QTSConfig, StrategyConfig, SystemConfig
 
 STRATEGY_KIND_ALIASES = {

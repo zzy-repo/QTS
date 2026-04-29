@@ -6,7 +6,7 @@ import pandas as pd
 
 from ..data.models import MarketPanel, StrategyInput
 from .specs import StrategySpec
-from .strategy import validate_strategy_output
+from .validators import validate_strategy_output
 
 
 @dataclass(frozen=True)
