@@ -1,10 +1,10 @@
-# Score Allocator
+# Equal Allocator
 
-`allocate_capital` 根据每个策略在最新一期信号中的 `score` 聚合结果分配资金。
+`equal_allocate_capital` 根据最新一期出现的策略集合做等权资金分配。
 
 ## 输入
 
-- `strategy_signals`: 至少包含 `date`、`strategy`、`score` 的信号表。
+- `strategy_signals`: 至少包含 `date`、`strategy` 的信号表。
 - `total_cash`: 可分配总资金。
 - `caps`: 可选的单策略权重上限。
 - `context`: 可选分配上下文；当前实现不使用该参数。
@@ -19,6 +19,6 @@
 ## 说明
 
 - 仅使用最新一个交易日的策略信号参与资金分配。
-- 默认按各策略 `score` 绝对值之和归一化分配。
-- 当全部策略得分为零时，回退为等权分配。
+- 默认按最新交易日出现的策略数量做等权切分。
+- 不依赖 `score` 强弱，策略层只要存在有效信号就参与平均分配。
 - 当设置 `caps` 时，超出上限的资金不会强行分配，而是保留为 `cash_left`。

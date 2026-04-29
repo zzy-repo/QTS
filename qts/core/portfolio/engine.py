@@ -7,7 +7,7 @@ import pandas as pd
 
 from ..data.models import ExecutionRun, MarketPanel
 from ..signal.specs import StrategySpec
-from .allocators.base import AllocationResult
+from .allocators.base import AllocationContext, AllocationResult
 from .results import StrategyRunResult, SystemRunResult, daily_pnl_view, rolling_annualized_return
 
 
@@ -39,6 +39,7 @@ class _AllocatorLike(Protocol):
         *,
         total_cash: float,
         caps: dict[str, float] | None = None,
+        context: AllocationContext | None = None,
     ) -> AllocationResult: ...
 
 
@@ -150,7 +151,13 @@ class PortfolioManager:
         executor: _ExecutorLike,
     ) -> SystemRunResult:
         """生成完整系统运行结果。"""
-        allocation = allocator.allocate(strategy_signals, total_cash=self.initial_cash, caps=self.capital_caps)
+        allocation_context = AllocationContext(market=market)
+        allocation = allocator.allocate(
+            strategy_signals,
+            total_cash=self.initial_cash,
+            caps=self.capital_caps,
+            context=allocation_context,
+        )
         alloc_map = allocation.allocation.set_index("strategy")["allocated_cash"].to_dict() if not allocation.allocation.empty else {}
 
         strategy_runs: list[StrategyRunResult] = []

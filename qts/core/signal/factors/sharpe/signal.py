@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ...data.models import StrategyInput
+from ....data.models import StrategyInput
 from ...utils import serialize_ts
 
 

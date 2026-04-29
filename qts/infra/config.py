@@ -25,6 +25,12 @@ STRATEGY_KIND_ALIASES = {
 ALLOCATION_MODE_ALIASES = {
     "score": "score",
     "打分": "score",
+    "equal": "equal",
+    "等权": "equal",
+    "risk_parity": "risk_parity",
+    "风险平价": "risk_parity",
+    "optimized": "optimized",
+    "优化组合": "optimized",
 }
 
 OPTIMIZER_MODE_ALIASES = {

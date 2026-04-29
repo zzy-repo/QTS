@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ..base import AllocationResult
+from ..base import AllocationContext, AllocationResult
 
 
 def _apply_caps(weights: pd.Series, caps: dict[str, float]) -> tuple[pd.Series, float]:
@@ -31,7 +31,13 @@ def _apply_caps(weights: pd.Series, caps: dict[str, float]) -> tuple[pd.Series, 
     return allocated, max(0.0, 1.0 - float(allocated.sum()))
 
 
-def score_allocate_capital(strategy_signals: pd.DataFrame, total_cash: float, caps: dict[str, float] | None = None) -> AllocationResult:
+def score_allocate_capital(
+    strategy_signals: pd.DataFrame,
+    total_cash: float,
+    caps: dict[str, float] | None = None,
+    *,
+    context: AllocationContext | None = None,
+) -> AllocationResult:
     """按策略信号分配资金。"""
     if strategy_signals.empty:
         return AllocationResult(allocation=pd.DataFrame(columns=["strategy", "allocated_cash"]), cash_left=total_cash)
@@ -52,6 +58,12 @@ def score_allocate_capital(strategy_signals: pd.DataFrame, total_cash: float, ca
     return AllocationResult(allocation=allocation, cash_left=cash_left)
 
 
-def allocate_capital(strategy_signals: pd.DataFrame, total_cash: float, caps: dict[str, float] | None = None) -> AllocationResult:
+def allocate_capital(
+    strategy_signals: pd.DataFrame,
+    total_cash: float,
+    caps: dict[str, float] | None = None,
+    *,
+    context: AllocationContext | None = None,
+) -> AllocationResult:
     """兼容旧命名，转发到 score allocator。"""
-    return score_allocate_capital(strategy_signals, total_cash, caps)
+    return score_allocate_capital(strategy_signals, total_cash, caps, context=context)

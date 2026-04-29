@@ -14,7 +14,7 @@ from .config import (
 from .models import QTSConfig
 from .reporter import summarize_system_run
 
-_ALLOCATION_LABELS = {"score": "打分"}
+_ALLOCATION_LABELS = {"score": "打分", "equal": "等权", "risk_parity": "风险平价", "optimized": "优化组合"}
 _OPTIMIZER_LABELS = {"score": "打分", "equal": "等权", "inv_vol": "逆波动率", "blend": "混合", "capped": "截断"}
 _EXECUTION_LABELS = {"backtest": "回测", "sim": "模拟", "paper": "纸面"}
 

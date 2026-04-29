@@ -13,6 +13,15 @@ from qts.core.data.models import ExecutionRun
 from qts.paths import REPO_ROOT
 from qts.core.portfolio.engine import PortfolioManager
 from qts.core.portfolio.allocation import allocate_capital
+from qts.core.portfolio.allocators import build_allocators
+from qts.core.portfolio.allocators.base import AllocationContext
+from qts.core.portfolio.allocators.common import (
+    aggregate_strategy_statistics,
+    build_strategy_return_history,
+    diagonal_covariance_from_volatility,
+    risk_contributions,
+)
+from qts.core.portfolio.engine_allocator import Allocator
 from qts.core.portfolio.results import annualized_return, daily_pnl_view
 from qts.core.optimize.engine import Optimizer
 from qts.core.signal.engine import SignalGenerator
@@ -38,6 +47,12 @@ def _build_synthetic_market() -> MarketPanel:
     base = pd.Series(range(len(index)), index=index, dtype=float)
     close = pd.DataFrame({symbol: 100.0 + base * (1.0 + i * 0.1) for i, symbol in enumerate(symbols)}, index=index)
     volume = pd.DataFrame({symbol: 1_000_000.0 + base * (1_000.0 + i * 100.0) for i, symbol in enumerate(symbols)}, index=index)
+    amount = close * volume
+    return MarketPanel(close=close, volume=volume, amount=amount, source_mode="synthetic-test")
+
+
+def _build_allocator_market(close: pd.DataFrame) -> MarketPanel:
+    volume = pd.DataFrame(1_000_000.0, index=close.index, columns=close.columns)
     amount = close * volume
     return MarketPanel(close=close, volume=volume, amount=amount, source_mode="synthetic-test")
 
@@ -301,6 +316,13 @@ def test_ensure_history_frame_adds_provider_column_from_attrs() -> None:
 
 
 def test_portfolio_manager_executes_each_strategy_with_allocated_cash() -> None:
+    class _Allocator:
+        mode = "score"
+
+        @staticmethod
+        def allocate(strategy_signals: pd.DataFrame, *, total_cash: float, caps=None, context=None):
+            return allocate_capital(strategy_signals, total_cash=total_cash, caps=caps)
+
     class _Optimizer:
         mode = "test"
 
@@ -345,6 +367,7 @@ def test_portfolio_manager_executes_each_strategy_with_allocated_cash() -> None:
         strategies=strategies,
         strategy_signals=strategy_signals,
         market=_build_synthetic_market(),
+        allocator=_Allocator(),
         optimizer=_Optimizer(),
         executor=executor,
     )
@@ -354,6 +377,13 @@ def test_portfolio_manager_executes_each_strategy_with_allocated_cash() -> None:
 
 
 def test_portfolio_manager_preserves_multiple_signal_dates_for_same_realization_day() -> None:
+    class _Allocator:
+        mode = "score"
+
+        @staticmethod
+        def allocate(strategy_signals: pd.DataFrame, *, total_cash: float, caps=None, context=None):
+            return allocate_capital(strategy_signals, total_cash=total_cash, caps=caps)
+
     class _Optimizer:
         mode = "test"
 
@@ -395,6 +425,7 @@ def test_portfolio_manager_preserves_multiple_signal_dates_for_same_realization_
         strategies=strategies,
         strategy_signals=strategy_signals,
         market=_build_synthetic_market(),
+        allocator=_Allocator(),
         optimizer=_Optimizer(),
         executor=_Executor(),
     )
@@ -405,6 +436,13 @@ def test_portfolio_manager_preserves_multiple_signal_dates_for_same_realization_
 
 
 def test_portfolio_manager_exposes_cash_left_in_aggregate_semantics() -> None:
+    class _Allocator:
+        mode = "score"
+
+        @staticmethod
+        def allocate(strategy_signals: pd.DataFrame, *, total_cash: float, caps=None, context=None):
+            return allocate_capital(strategy_signals, total_cash=total_cash, caps=caps)
+
     class _Optimizer:
         mode = "test"
 
@@ -441,6 +479,7 @@ def test_portfolio_manager_exposes_cash_left_in_aggregate_semantics() -> None:
         strategies=strategies,
         strategy_signals=strategy_signals,
         market=_build_synthetic_market(),
+        allocator=_Allocator(),
         optimizer=_Optimizer(),
         executor=_Executor(),
     )
@@ -558,6 +597,221 @@ def test_allocate_capital_respects_caps_after_redistribution() -> None:
     assert result.cash_left == 0.0
 
 
+def test_build_allocators_registers_all_supported_modes() -> None:
+    allocators = build_allocators()
+
+    assert {"score", "equal", "risk_parity", "optimized"}.issubset(allocators.keys())
+
+
+def test_equal_allocator_splits_capital_evenly_across_strategies() -> None:
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-03", "strategy": "s1", "symbol": "000001", "score": 10.0, "weight": 0.5, "volatility": 0.03},
+            {"date": "2024-01-03", "strategy": "s1", "symbol": "000002", "score": 1.0, "weight": 0.5, "volatility": 0.05},
+            {"date": "2024-01-03", "strategy": "s2", "symbol": "000003", "score": 2.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "s3", "symbol": "000004", "score": 0.5, "weight": 1.0, "volatility": 0.01},
+        ]
+    )
+
+    result = Allocator(mode="equal").allocate(signals, total_cash=900.0)
+    alloc = result.allocation.set_index("strategy")["allocated_cash"].to_dict()
+
+    assert alloc == {"s1": 300.0, "s2": 300.0, "s3": 300.0}
+    assert result.cash_left == 0.0
+
+
+def test_risk_parity_allocator_overweights_lower_volatility_strategy() -> None:
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-03", "strategy": "high_vol", "symbol": "000001", "score": 3.0, "weight": 1.0, "volatility": 0.04},
+            {"date": "2024-01-03", "strategy": "mid_vol", "symbol": "000002", "score": 2.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "low_vol", "symbol": "000003", "score": 1.0, "weight": 1.0, "volatility": 0.01},
+        ]
+    )
+
+    result = Allocator(mode="risk_parity").allocate(signals, total_cash=700.0)
+    alloc = result.allocation.set_index("strategy")["allocated_cash"]
+
+    assert alloc["low_vol"] > alloc["mid_vol"] > alloc["high_vol"]
+    assert result.cash_left == 0.0
+
+
+def test_optimized_allocator_respects_caps_with_score_risk_tradeoff() -> None:
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-03", "strategy": "s1", "symbol": "000001", "score": 6.0, "weight": 1.0, "volatility": 0.04},
+            {"date": "2024-01-03", "strategy": "s2", "symbol": "000002", "score": 3.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "s3", "symbol": "000003", "score": 1.0, "weight": 1.0, "volatility": 0.01},
+        ]
+    )
+
+    result = Allocator(mode="optimized").allocate(signals, total_cash=1_000.0, caps={"s1": 0.4})
+    alloc = result.allocation.set_index("strategy")["allocated_cash"]
+
+    assert float(alloc["s1"]) <= 400.0 + 1e-6
+    assert float(alloc.sum()) <= 1_000.0 + 1e-6
+    assert result.cash_left >= 0.0
+
+
+def test_equal_allocator_ignores_score_magnitude() -> None:
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-03", "strategy": "s1", "symbol": "000001", "score": 100.0, "weight": 1.0, "volatility": 0.03},
+            {"date": "2024-01-03", "strategy": "s2", "symbol": "000002", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "s3", "symbol": "000003", "score": 0.1, "weight": 1.0, "volatility": 0.01},
+        ]
+    )
+
+    result = Allocator(mode="equal").allocate(signals, total_cash=900.0)
+    weights = (result.allocation.set_index("strategy")["allocated_cash"] / 900.0).to_dict()
+
+    assert weights == {"s1": pytest.approx(1 / 3), "s2": pytest.approx(1 / 3), "s3": pytest.approx(1 / 3)}
+    assert result.cash_left == 0.0
+
+
+def test_risk_parity_allocator_balances_diagonal_risk_contributions() -> None:
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-03", "strategy": "s1", "symbol": "000001", "score": 1.0, "weight": 1.0, "volatility": 0.04},
+            {"date": "2024-01-03", "strategy": "s2", "symbol": "000002", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "s3", "symbol": "000003", "score": 1.0, "weight": 1.0, "volatility": 0.01},
+        ]
+    )
+
+    result = Allocator(mode="risk_parity").allocate(signals, total_cash=1_000.0)
+    weights = result.allocation.set_index("strategy")["allocated_cash"] / 1_000.0
+    stats = aggregate_strategy_statistics(signals)
+    covariance = diagonal_covariance_from_volatility(stats)
+    contributions = risk_contributions(weights.sort_index(), covariance)
+
+    assert weights["s3"] > weights["s2"] > weights["s1"]
+    assert contributions.max() - contributions.min() < 1e-3
+
+
+def test_optimized_allocator_falls_back_to_equal_when_scores_are_zero() -> None:
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-03", "strategy": "s1", "symbol": "000001", "score": 0.0, "weight": 1.0, "volatility": 0.04},
+            {"date": "2024-01-03", "strategy": "s2", "symbol": "000002", "score": 0.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "s3", "symbol": "000003", "score": 0.0, "weight": 1.0, "volatility": 0.01},
+        ]
+    )
+
+    result = Allocator(mode="optimized").allocate(signals, total_cash=900.0)
+    alloc = result.allocation.set_index("strategy")["allocated_cash"].to_dict()
+
+    assert alloc == {"s1": 300.0, "s2": 300.0, "s3": 300.0}
+    assert result.cash_left == 0.0
+
+
+def test_risk_parity_allocator_fills_missing_volatility_with_sample_median() -> None:
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-03", "strategy": "s1", "symbol": "000001", "score": 1.0, "weight": 1.0, "volatility": 0.03},
+            {"date": "2024-01-03", "strategy": "s2", "symbol": "000002", "score": 1.0, "weight": 1.0, "volatility": None},
+            {"date": "2024-01-03", "strategy": "s3", "symbol": "000003", "score": 1.0, "weight": 1.0, "volatility": 0.01},
+        ]
+    )
+
+    result = Allocator(mode="risk_parity").allocate(signals, total_cash=900.0)
+    alloc = result.allocation.set_index("strategy")["allocated_cash"]
+
+    assert float(alloc.sum()) == pytest.approx(900.0)
+    assert (alloc > 0).all()
+
+
+def test_build_strategy_return_history_uses_next_day_weighted_returns() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=4)
+    close = pd.DataFrame(
+        {
+            "a": [100.0, 110.0, 121.0, 133.1],
+            "b": [100.0, 90.0, 81.0, 72.9],
+        },
+        index=dates,
+    )
+    market = _build_allocator_market(close)
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-02", "strategy": "s1", "symbol": "a", "score": 1.0, "weight": 0.75},
+            {"date": "2024-01-02", "strategy": "s1", "symbol": "b", "score": 1.0, "weight": 0.25},
+            {"date": "2024-01-02", "strategy": "s2", "symbol": "b", "score": 1.0, "weight": 1.0},
+        ]
+    )
+
+    history = build_strategy_return_history(signals, market).set_index("date")
+
+    assert float(history.loc[pd.Timestamp("2024-01-02"), "s1"]) == pytest.approx(0.05)
+    assert float(history.loc[pd.Timestamp("2024-01-02"), "s2"]) == pytest.approx(-0.10)
+
+
+def test_risk_parity_allocator_uses_history_context_when_available() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=4)
+    close = pd.DataFrame(
+        {
+            "a": [100.0, 120.0, 96.0, 115.2],
+            "b": [100.0, 101.0, 102.01, 103.0301],
+        },
+        index=dates,
+    )
+    market = _build_allocator_market(close)
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-02", "strategy": "s1", "symbol": "a", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "s1", "symbol": "a", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-04", "strategy": "s1", "symbol": "a", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-02", "strategy": "s2", "symbol": "b", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "s2", "symbol": "b", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-04", "strategy": "s2", "symbol": "b", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+        ]
+    )
+
+    no_context = Allocator(mode="risk_parity").allocate(signals, total_cash=900.0)
+    with_context = Allocator(mode="risk_parity").allocate(
+        signals,
+        total_cash=900.0,
+        context=AllocationContext(market=market),
+    )
+    no_context_alloc = no_context.allocation.set_index("strategy")["allocated_cash"]
+    with_context_alloc = with_context.allocation.set_index("strategy")["allocated_cash"]
+
+    assert float(no_context_alloc["s1"]) == pytest.approx(float(no_context_alloc["s2"]))
+    assert float(with_context_alloc["s2"]) > float(with_context_alloc["s1"])
+
+
+def test_optimized_allocator_uses_history_context_when_available() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=4)
+    close = pd.DataFrame(
+        {
+            "a": [100.0, 103.0, 106.09, 109.2727],
+            "b": [100.0, 99.0, 98.01, 97.0299],
+        },
+        index=dates,
+    )
+    market = _build_allocator_market(close)
+    signals = pd.DataFrame(
+        [
+            {"date": "2024-01-02", "strategy": "s1", "symbol": "a", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "s1", "symbol": "a", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-04", "strategy": "s1", "symbol": "a", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-02", "strategy": "s2", "symbol": "b", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-03", "strategy": "s2", "symbol": "b", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+            {"date": "2024-01-04", "strategy": "s2", "symbol": "b", "score": 1.0, "weight": 1.0, "volatility": 0.02},
+        ]
+    )
+
+    no_context = Allocator(mode="optimized").allocate(signals, total_cash=900.0)
+    with_context = Allocator(mode="optimized").allocate(
+        signals,
+        total_cash=900.0,
+        context=AllocationContext(market=market),
+    )
+    no_context_alloc = no_context.allocation.set_index("strategy")["allocated_cash"]
+    with_context_alloc = with_context.allocation.set_index("strategy")["allocated_cash"]
+
+    assert float(no_context_alloc["s1"]) == pytest.approx(float(no_context_alloc["s2"]))
+    assert float(with_context_alloc["s1"]) > float(with_context_alloc["s2"])
+
+
 def test_signal_generator_validates_strategy_output() -> None:
     generator = SignalGenerator(
         strategies=[
@@ -669,10 +923,17 @@ def test_cli_optimizer_labels_cover_supported_modes() -> None:
 def test_apply_overrides_normalizes_cli_aliases() -> None:
     config = default_qts_config()
 
-    updated = apply_overrides(config, optimizer_mode="混合", execution_mode="回测")
+    updated = apply_overrides(config, allocation_mode="风险平价", optimizer_mode="混合", execution_mode="回测")
 
+    assert updated.system.allocation_mode == "risk_parity"
     assert updated.system.optimizer_mode == "blend"
     assert updated.system.execution_mode == "backtest"
+
+
+def test_cli_allocation_labels_cover_supported_modes() -> None:
+    assert cli_module._ALLOCATION_LABELS["equal"] == "等权"
+    assert cli_module._ALLOCATION_LABELS["risk_parity"] == "风险平价"
+    assert cli_module._ALLOCATION_LABELS["optimized"] == "优化组合"
 
 
 def test_package_root_preserves_compatibility_exports() -> None:
