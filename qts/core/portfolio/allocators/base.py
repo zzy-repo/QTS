@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 import pandas as pd
 
@@ -21,3 +22,11 @@ class AllocationResult:
 
     allocation: pd.DataFrame
     cash_left: float
+
+
+@dataclass(frozen=True)
+class AllocatorAdapter:
+    """描述一个资金分配器实现。"""
+
+    name: str
+    run: Callable[..., AllocationResult]

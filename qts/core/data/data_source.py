@@ -10,6 +10,8 @@ import pandas as pd
 import requests
 from loguru import logger
 from pandera.errors import SchemaErrors
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity.nap import sleep as tenacity_sleep
 
 from ..frame_schemas import HISTORY_SCHEMA, collect_schema_issues
 from .cache import (
@@ -92,6 +94,52 @@ SOURCE_MODE_LABELS = {
     "cache+network": "本地缓存+网络补拉",
     "network": "网络拉取",
 }
+
+_RETRYABLE_FETCH_EXCEPTIONS = (requests.RequestException, httpx.HTTPError)
+_FALLBACK_FETCH_EXCEPTIONS = _RETRYABLE_FETCH_EXCEPTIONS + (
+    MarketDataUnavailableError,
+    ValueError,
+    KeyError,
+    TypeError,
+)
+_FETCH_RETRY_ATTEMPTS = 3
+_RETRY_SLEEP = tenacity_sleep
+
+
+def _fetch_with_retry(
+    fetcher: Callable[[str, str, str], pd.DataFrame],
+    provider: str,
+    symbol: str,
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame:
+    """对网络抓取施加统一重试策略。"""
+    retrying = Retrying(
+        stop=stop_after_attempt(_FETCH_RETRY_ATTEMPTS),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        retry=retry_if_exception_type(_RETRYABLE_FETCH_EXCEPTIONS),
+        reraise=True,
+        sleep=_RETRY_SLEEP,
+    )
+    for attempt in retrying:
+        with attempt:
+            try:
+                return fetcher(symbol, start_date, end_date)
+            except _RETRYABLE_FETCH_EXCEPTIONS as exc:
+                if attempt.retry_state.attempt_number < _FETCH_RETRY_ATTEMPTS:
+                    logger.warning(
+                        "行情抓取重试 来源={} 标的={} 开始={} 结束={} 第{}次/共{}次 异常类型={} 异常={}",
+                        provider,
+                        symbol,
+                        start_date,
+                        end_date,
+                        attempt.retry_state.attempt_number,
+                        _FETCH_RETRY_ATTEMPTS,
+                        type(exc).__name__,
+                        exc,
+                    )
+                raise
+    raise RuntimeError(f"unreachable retry state for provider={provider}")
 
 
 def _build_secid(symbol: str) -> str:
@@ -185,8 +233,8 @@ def _fetch_tx_daily_history(symbol: str, start_date: str, end_date: str) -> pd.D
 def fetch_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
     """获取单标的历史日线，优先东财，失败时回退腾讯。"""
     try:
-        return _fetch_eastmoney_daily_history(symbol, start_date, end_date)
-    except (requests.RequestException, MarketDataUnavailableError, ValueError, KeyError, TypeError) as exc:
+        return _fetch_with_retry(_fetch_eastmoney_daily_history, "eastmoney", symbol, start_date, end_date)
+    except _FALLBACK_FETCH_EXCEPTIONS as exc:
         logger.warning(
             "东方财富历史行情拉取失败，回退腾讯行情 标的={} 开始={} 结束={} 异常类型={} 异常={}",
             symbol,
@@ -195,7 +243,7 @@ def fetch_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataF
             type(exc).__name__,
             exc,
         )
-        return _fetch_tx_daily_history(symbol, start_date, end_date)
+        return _fetch_with_retry(_fetch_tx_daily_history, "tx", symbol, start_date, end_date)
 
 
 def normalize_daily_history(df: pd.DataFrame, symbol: str) -> pd.DataFrame:

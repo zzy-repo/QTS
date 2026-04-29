@@ -57,3 +57,30 @@ strategies:
 行情数据默认会缓存到 `.cache/qts-market/`，供不同正式入口共享复用；可通过 `QTS_MARKET_CACHE_DIR` 覆盖。
 
 各配置文件的 `entry` 段定义报表类型、输出目录和产物列表。`artifacts/backtest/`、`artifacts/close_report/`、`artifacts/stock_selection/`、`artifacts/qts/` 仅保存各 profile 的结果、日志和摘要，不再承载行情缓存。
+
+## 扩展机制
+
+QTS 的 `factor`、`strategy`、`optimizer`、`allocator` 已统一切换到 `pluggy` 插件模型。
+
+- 内置实现由 `qts.core.builtin_plugins.BuiltinQTSPlugin` 提供。
+- 运行时插件管理入口在 `qts.core.plugins`。
+- 新增扩展时，不再修改静态 registry；只需要提供插件实现并注册对应 hook。
+
+常用入口：
+
+```python
+from qts.core import hookimpl, register_plugin, unregister_plugin
+```
+
+## 测试约定
+
+测试分成两层：
+
+- 回归测试：验证正式入口、系统装配和核心业务行为。
+- 属性测试：使用 `hypothesis` 验证权重归一、预算守恒、上限约束等不变量。
+
+运行测试：
+
+```bash
+uv run python -m pytest -q
+```

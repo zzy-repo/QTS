@@ -54,6 +54,29 @@ def _build_allocator_market(close: pd.DataFrame) -> MarketPanel:
     return MarketPanel(close=close, volume=volume, amount=amount, source_mode="synthetic-test")
 
 
+def _single_history_frame(symbol: str, *, provider: str) -> pd.DataFrame:
+    frame = pd.DataFrame(
+        [
+            {
+                "symbol": symbol,
+                "date": "2024-01-02",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 1000.0,
+                "amount": 10500.0,
+                "amplitude": pd.NA,
+                "pct_change": pd.NA,
+                "change": pd.NA,
+                "turnover": pd.NA,
+            }
+        ]
+    )
+    frame.attrs["provider"] = provider
+    return frame
+
+
 def test_qts_config_round_trip(tmp_path: Path) -> None:
     config = default_qts_config()
     target = tmp_path / "qts.yaml"
@@ -97,6 +120,26 @@ strategies:
     assert strategy.factor_weights == {"momentum": 0.5, "trend": 0.3, "sharpe": 0.2}
     assert strategy.lookback == 12
     assert strategy.top_n == 4
+
+
+def test_load_qts_config_rejects_duplicate_factor_kinds(tmp_path: Path) -> None:
+    target = tmp_path / "duplicate_factors.yaml"
+    target.write_text(
+        """
+market:
+  symbols: ["000001", "000002"]
+  start_date: "20240102"
+  end_date: "20240131"
+strategies:
+  - name: duplicated
+    strategy_kind: factor
+    factor_kinds: [momentum, momentum]
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate factor_kinds"):
+        load_qts_config(target)
 
 
 def test_system_builds_and_runs_on_synthetic_market() -> None:
@@ -293,27 +336,9 @@ def test_fetch_daily_history_falls_back_to_tx_when_eastmoney_fails(monkeypatch) 
         raise requests.exceptions.ProxyError("proxy down")
 
     def tx_frame(*args, **kwargs):
-        frame = pd.DataFrame(
-            [
-                {
-                    "symbol": "600519",
-                    "date": "2024-01-02",
-                    "open": 10.0,
-                    "high": 11.0,
-                    "low": 9.0,
-                    "close": 10.5,
-                    "volume": 1000.0,
-                    "amount": 10500.0,
-                    "amplitude": pd.NA,
-                    "pct_change": pd.NA,
-                    "change": pd.NA,
-                    "turnover": pd.NA,
-                }
-            ]
-        )
-        frame.attrs["provider"] = "tx"
-        return frame
+        return _single_history_frame("600519", provider="tx")
 
+    monkeypatch.setattr(data_source_module, "_RETRY_SLEEP", lambda _: None)
     monkeypatch.setattr(data_source_module, "_fetch_eastmoney_daily_history", fail_eastmoney)
     monkeypatch.setattr(data_source_module, "_fetch_tx_daily_history", tx_frame)
 
@@ -321,6 +346,24 @@ def test_fetch_daily_history_falls_back_to_tx_when_eastmoney_fails(monkeypatch) 
 
     assert frame.attrs["provider"] == "tx"
     assert frame.iloc[0]["symbol"] == "600519"
+
+
+def test_fetch_daily_history_retries_eastmoney_network_errors(monkeypatch) -> None:
+    attempts = {"eastmoney": 0}
+
+    def flaky_eastmoney(*args, **kwargs):
+        attempts["eastmoney"] += 1
+        if attempts["eastmoney"] < 3:
+            raise requests.exceptions.ReadTimeout("slow upstream")
+        return _single_history_frame("600519", provider="eastmoney")
+
+    monkeypatch.setattr(data_source_module, "_RETRY_SLEEP", lambda _: None)
+    monkeypatch.setattr(data_source_module, "_fetch_eastmoney_daily_history", flaky_eastmoney)
+
+    frame = data_source_module.fetch_daily_history("600519", "20240102", "20240110")
+
+    assert attempts["eastmoney"] == 3
+    assert frame.attrs["provider"] == "eastmoney"
 
 
 def test_fetch_tx_daily_history_normalizes_volume_and_amount(monkeypatch) -> None:
@@ -356,26 +399,7 @@ def test_fetch_daily_history_propagates_eastmoney_parse_errors(monkeypatch) -> N
         raise ValueError("bad payload")
 
     def tx_frame(*args, **kwargs):
-        frame = pd.DataFrame(
-            [
-                {
-                    "symbol": "600519",
-                    "date": "2024-01-02",
-                    "open": 10.0,
-                    "high": 11.0,
-                    "low": 9.0,
-                    "close": 10.5,
-                    "volume": 1000.0,
-                    "amount": 10500.0,
-                    "amplitude": pd.NA,
-                    "pct_change": pd.NA,
-                    "change": pd.NA,
-                    "turnover": pd.NA,
-                }
-            ]
-        )
-        frame.attrs["provider"] = "tx"
-        return frame
+        return _single_history_frame("600519", provider="tx")
 
     monkeypatch.setattr(data_source_module, "_fetch_eastmoney_daily_history", bad_payload)
     monkeypatch.setattr(data_source_module, "_fetch_tx_daily_history", tx_frame)
@@ -384,6 +408,28 @@ def test_fetch_daily_history_propagates_eastmoney_parse_errors(monkeypatch) -> N
 
     assert frame.attrs["provider"] == "tx"
     assert frame.iloc[0]["symbol"] == "600519"
+
+
+def test_fetch_daily_history_retries_tx_after_eastmoney_network_failure(monkeypatch) -> None:
+    tx_attempts = {"count": 0}
+
+    def fail_eastmoney(*args, **kwargs):
+        raise requests.exceptions.ProxyError("proxy down")
+
+    def flaky_tx(*args, **kwargs):
+        tx_attempts["count"] += 1
+        if tx_attempts["count"] < 2:
+            raise requests.exceptions.ConnectionError("tx temporary failure")
+        return _single_history_frame("600519", provider="tx")
+
+    monkeypatch.setattr(data_source_module, "_RETRY_SLEEP", lambda _: None)
+    monkeypatch.setattr(data_source_module, "_fetch_eastmoney_daily_history", fail_eastmoney)
+    monkeypatch.setattr(data_source_module, "_fetch_tx_daily_history", flaky_tx)
+
+    frame = data_source_module.fetch_daily_history("600519", "20240102", "20240110")
+
+    assert tx_attempts["count"] == 2
+    assert frame.attrs["provider"] == "tx"
 
 
 def test_missing_ranges_skips_cached_end_day() -> None:
