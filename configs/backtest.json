@@ -1,4 +1,10 @@
 {
+  "入口": {
+    "名称": "backtest",
+    "报表类型": "backtest",
+    "输出目录": "artifacts/backtest",
+    "输出内容": ["signals", "pnl", "report", "run_summary"]
+  },
   "市场": {
     "标的池": [
       "000001",

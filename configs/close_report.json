@@ -1,4 +1,10 @@
 {
+  "入口": {
+    "名称": "close_report",
+    "报表类型": "close",
+    "输出目录": "artifacts/close_report",
+    "输出内容": ["signals", "report", "run_summary"]
+  },
   "市场": {
     "标的池": [
       "000001",

@@ -14,14 +14,15 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from qts.core.data.data_source import load_market_panel
 from qts.infra.config import load_qts_config
-from qts.infra.entrypoints import DEFAULT_BACKTEST_CONFIG
 from shared import ExperimentMeta, record_experiment
+
+BACKTEST_CONFIG = REPO_ROOT / "configs" / "backtest.json"
 
 
 def _probe_default_config() -> dict[str, object]:
-    config = load_qts_config(DEFAULT_BACKTEST_CONFIG)
+    config = load_qts_config(BACKTEST_CONFIG)
     return {
-        "config_path": str(DEFAULT_BACKTEST_CONFIG),
+        "config_path": str(BACKTEST_CONFIG),
         "symbols": list(config.market.symbols),
         "start_date": config.market.start_date,
         "end_date": config.market.end_date,
@@ -79,7 +80,7 @@ def main() -> None:
     artifact_dir = ROOT / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    config = load_qts_config(DEFAULT_BACKTEST_CONFIG)
+    config = load_qts_config(BACKTEST_CONFIG)
     config_probe = _probe_default_config()
     error_probe = _capture_load_error(config)
     fallback_probe = _capture_fallback_probe(config)

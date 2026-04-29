@@ -83,18 +83,38 @@ class SystemConfig:
 
 
 @dataclass(frozen=True)
+class EntryConfig:
+    """描述统一入口的报表与产物输出配置。"""
+
+    name: str = "qts"
+    report_kind: str = "backtest"
+    artifact_dir: str = "artifacts/qts"
+    outputs: list[str] = field(default_factory=lambda: ["signals", "report", "run_summary"])
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "名称": self.name,
+            "报表类型": self.report_kind,
+            "输出目录": self.artifact_dir,
+            "输出内容": list(self.outputs),
+        }
+
+
+@dataclass(frozen=True)
 class QTSConfig:
     """描述完整系统配置。"""
 
     market: MarketConfig
     system: SystemConfig
     strategies: list[StrategyConfig]
+    entry: EntryConfig = field(default_factory=EntryConfig)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "市场": self.market.to_dict(),
             "系统": self.system.to_dict(),
             "策略": [strategy.to_dict() for strategy in self.strategies],
+            "入口": self.entry.to_dict(),
         }
 
 
@@ -104,6 +124,8 @@ class EntryRun:
 
     name: str
     config_path: Path | None
+    artifact_dir: Path
+    outputs: list[str]
     config: QTSConfig
     market: MarketPanel
     result: SystemRunResult

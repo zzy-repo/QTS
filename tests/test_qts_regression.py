@@ -28,13 +28,10 @@ from qts.core.strategy.engine import SignalGenerator
 from qts.core.strategy.specs import StrategySpec
 from qts.infra.config import apply_overrides, build_system_from_config, default_qts_config, load_qts_config, save_qts_config
 from qts.infra.entrypoints import (
-    DEFAULT_BACKTEST_CONFIG,
+    DEFAULT_ENTRY_CONFIG,
     _report_input_for_backtest,
-    run_backtest_entry,
-    run_close_report_entry,
-    run_stock_selection_entry,
+    run_entry,
 )
-from qts.infra import cli as cli_module
 from qts.infra import logging_utils
 from qts.infra.report import build_report, latest_signal_frame, normalize_signal_frame
 from qts.infra.models import MarketConfig, StrategyConfig, SystemConfig, QTSConfig
@@ -120,15 +117,15 @@ def test_system_builds_and_runs_on_synthetic_market() -> None:
     assert result.snapshot["risk_state_rows"] >= 0
 
 
-def test_default_backtest_config_points_to_repo_root() -> None:
-    assert DEFAULT_BACKTEST_CONFIG == REPO_ROOT / "configs" / "backtest.json"
+def test_default_entry_config_points_to_repo_root() -> None:
+    assert DEFAULT_ENTRY_CONFIG == REPO_ROOT / "configs" / "qts.config.json"
 
 
 def test_default_market_cache_root_points_to_repo_root() -> None:
     assert cache_module.default_cache_root() == REPO_ROOT / ".cache" / "qts-market"
 
 
-def test_entrypoints_use_latest_signals(monkeypatch) -> None:
+def test_entry_profiles_generate_expected_reports(monkeypatch) -> None:
     market = _build_synthetic_market()
 
     from qts.infra import entrypoints as entrypoints_module
@@ -141,17 +138,19 @@ def test_entrypoints_use_latest_signals(monkeypatch) -> None:
 
     monkeypatch.setattr(entrypoints_module, "load_market_from_config", fake_load_market_from_config)
 
-    backtest_run = run_backtest_entry()
-    close_run = run_close_report_entry()
-    stock_run = run_stock_selection_entry()
+    backtest_run = run_entry(REPO_ROOT / "configs" / "backtest.json")
+    close_run = run_entry(REPO_ROOT / "configs" / "close_report.json")
+    stock_run = run_entry(REPO_ROOT / "configs" / "stock_selection.json")
 
     assert "signal_date" in backtest_run.result.aggregate_pnl.columns
     assert backtest_run.result.aggregate_pnl["annualized_return"].nunique(dropna=False) > 1
     aggregate_pnl = backtest_run.result.aggregate_pnl
     expected_annualized = annualized_return(float(aggregate_pnl["cum_return"].iloc[-1]), len(aggregate_pnl))
     assert float(aggregate_pnl["annualized_return"].iloc[-1]) == expected_annualized
-    assert close_run.signals["date"].nunique() == 1
-    assert stock_run.signals["date"].nunique() == 1
+    assert close_run.signals["date"].nunique() > 1
+    assert stock_run.signals["date"].nunique() > 1
+    assert close_run.report["date"].nunique() == 1
+    assert stock_run.report["date"].nunique() == 1
     assert "decision" in close_run.report.columns
     assert "selected" in stock_run.report.columns
     assert seen_cache_roots == [None, None, None]
@@ -991,11 +990,6 @@ def test_optimizer_rejects_missing_volatility_for_blend() -> None:
         Optimizer(mode="blend").optimize(signals)
 
 
-def test_cli_optimizer_labels_cover_supported_modes() -> None:
-    assert cli_module._OPTIMIZER_LABELS["inv_vol"] == "逆波动率"
-    assert cli_module._OPTIMIZER_LABELS["blend"] == "混合"
-
-
 def test_apply_overrides_normalizes_cli_aliases() -> None:
     config = default_qts_config()
 
@@ -1004,12 +998,6 @@ def test_apply_overrides_normalizes_cli_aliases() -> None:
     assert updated.system.allocation_mode == "risk_parity"
     assert updated.system.optimizer_mode == "blend"
     assert updated.system.execution_mode == "backtest"
-
-
-def test_cli_allocation_labels_cover_supported_modes() -> None:
-    assert cli_module._ALLOCATION_LABELS["equal"] == "等权"
-    assert cli_module._ALLOCATION_LABELS["risk_parity"] == "风险平价"
-    assert cli_module._ALLOCATION_LABELS["optimized"] == "优化组合"
 
 
 def test_package_root_exports_runtime_entrypoints() -> None:

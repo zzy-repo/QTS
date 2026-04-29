@@ -7,7 +7,7 @@ from pathlib import Path
 from ..core.data.data_source import DEFAULT_UNIVERSE, load_market_panel
 from ..core.strategy import build_strategy_spec
 from ..core.strategy.specs import StrategySpec
-from .models import MarketConfig, QTSConfig, StrategyConfig, SystemConfig
+from .models import EntryConfig, MarketConfig, QTSConfig, StrategyConfig, SystemConfig
 
 STRATEGY_KIND_ALIASES = {
     "factor": "factor",
@@ -56,8 +56,20 @@ EXECUTION_MODE_ALIASES = {
     "纸面": "paper",
 }
 
+REPORT_KIND_ALIASES = {
+    "backtest": "backtest",
+    "回测": "backtest",
+    "close": "close",
+    "收盘": "close",
+    "close_report": "close",
+    "selection": "selection",
+    "选股": "selection",
+    "stock_selection": "selection",
+}
+
 DEFAULT_START_DATE = "20240102"
 DEFAULT_END_DATE = "20240315"
+DEFAULT_ENTRY_OUTPUTS = ["signals", "report", "run_summary"]
 
 
 def _reject_unsupported_strategy_keys(raw: dict[str, object], *, index: int) -> None:
@@ -206,6 +218,51 @@ def _build_strategy_configs(payload: dict[str, object]) -> list[StrategyConfig]:
     return strategies
 
 
+def _normalize_entry_outputs(value: object) -> list[str]:
+    """把入口产物输出字段整理成内部统一格式。"""
+    if isinstance(value, list):
+        items = value
+    elif value is None:
+        items = list(DEFAULT_ENTRY_OUTPUTS)
+    else:
+        items = [value]
+
+    aliases = {
+        "signals": "signals",
+        "信号": "signals",
+        "signal": "signals",
+        "report": "report",
+        "报表": "report",
+        "pnl": "pnl",
+        "收益": "pnl",
+        "run_summary": "run_summary",
+        "summary": "run_summary",
+        "run.txt": "run_summary",
+        "运行摘要": "run_summary",
+    }
+    normalized: list[str] = []
+    for item in items:
+        key = str(item).strip()
+        if not key:
+            continue
+        output = aliases.get(key, aliases.get(key.lower()))
+        if output is None or output in normalized:
+            continue
+        normalized.append(output)
+    return normalized or list(DEFAULT_ENTRY_OUTPUTS)
+
+
+def _build_entry_config(payload: dict[str, object]) -> EntryConfig:
+    """从原始配置中解析入口配置。"""
+    entry_raw = _pick(payload, "入口", "entry", default={}) or {}
+    return EntryConfig(
+        name=str(_pick(entry_raw, "名称", "name", default="qts")),
+        report_kind=_alias(REPORT_KIND_ALIASES, _pick(entry_raw, "报表类型", "report_kind", default="backtest"), "backtest"),
+        artifact_dir=str(_pick(entry_raw, "输出目录", "artifact_dir", default="artifacts/qts")),
+        outputs=_normalize_entry_outputs(_pick(entry_raw, "输出内容", "outputs", default=DEFAULT_ENTRY_OUTPUTS)),
+    )
+
+
 def default_qts_config() -> QTSConfig:
     """生成默认系统配置。"""
     return QTSConfig(
@@ -231,6 +288,7 @@ def default_qts_config() -> QTSConfig:
             StrategyConfig(name="momentum", strategy_kind="factor", factor_kinds=["momentum"], lookback=20, top_n=3),
             StrategyConfig(name="trend", strategy_kind="factor", factor_kinds=["trend"], lookback=30, top_n=3),
         ],
+        entry=EntryConfig(),
     )
 
 
@@ -256,7 +314,8 @@ def load_qts_config(path: str | Path | None = None) -> QTSConfig:
     market = _build_market_config(payload)
     system = _build_system_config(payload)
     strategies = _build_strategy_configs(payload) or list(default_qts_config().strategies)
-    return QTSConfig(market=market, system=system, strategies=strategies)
+    entry = _build_entry_config(payload)
+    return QTSConfig(market=market, system=system, strategies=strategies, entry=entry)
 
 
 def save_qts_config(config: QTSConfig, path: str | Path) -> Path:

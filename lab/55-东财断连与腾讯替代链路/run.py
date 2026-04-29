@@ -16,8 +16,9 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from qts.core.data.models import MarketPanel
 from qts.infra.config import build_system_from_config, load_qts_config
-from qts.infra.entrypoints import DEFAULT_BACKTEST_CONFIG
 from shared import ExperimentMeta, record_experiment
+
+BACKTEST_CONFIG = REPO_ROOT / "configs" / "backtest.json"
 
 EASTMONEY_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 
@@ -112,7 +113,7 @@ def main() -> None:
     artifact_dir = ROOT / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    config = load_qts_config(DEFAULT_BACKTEST_CONFIG)
+    config = load_qts_config(BACKTEST_CONFIG)
     eastmoney_probe = _probe_eastmoney(
         config.market.symbols[0],
         config.market.start_date,

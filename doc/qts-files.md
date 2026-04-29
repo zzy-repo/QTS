@@ -27,8 +27,7 @@
 - `qts/infra/report.py`: 统一报表与信号规范。
 - `qts/infra/diagnostics.py`: 风险状态判断。
 - `qts/infra/reporter.py`: 系统结果汇总报表。
-- `qts/infra/entrypoints.py`: 正式入口编排。
-- `qts/infra/cli.py`: 命令行 demo 入口。
+- `qts/infra/entrypoints.py`: 正式统一入口编排与产物落盘。
 - `qts/infra/presets.py`: 默认策略与默认系统组装。
 
 ## configs/
