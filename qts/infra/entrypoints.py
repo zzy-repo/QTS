@@ -7,12 +7,12 @@ from loguru import logger
 
 from ..core.data.data_source import describe_source_mode
 from ..paths import REPO_ROOT
-from .config import QTSConfig, load_market_from_config, load_qts_config
-from .models import EntryRun
+from .config import build_system_from_config, load_market_from_config, load_qts_config
+from .models import EntryRun, QTSConfig
 from .report import build_report, normalize_signal_frame
 
 CONFIG_DIR = REPO_ROOT / "configs"
-DEFAULT_ENTRY_CONFIG = CONFIG_DIR / "qts.config.json"
+DEFAULT_ENTRY_CONFIG = CONFIG_DIR / "qts.yaml"
 
 
 def _resolve_entry_config_path(config_path: str | Path | None = None) -> Path | None:
@@ -57,8 +57,6 @@ def _run_loaded_config(
         len(market.close),
         list(market.close.columns),
     )
-    from .config import build_system_from_config
-
     system = build_system_from_config(config)
     result = system.run(market)
     logger.info(

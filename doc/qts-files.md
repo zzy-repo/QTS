@@ -21,8 +21,8 @@
 
 ## qts/infra/
 - `qts/infra/`: 基础设施层，负责配置、入口、报表和诊断。
-- `qts/infra/models.py`: 配置与入口数据模型。
-- `qts/infra/config.py`: 中文友好的配置模型、加载、保存与系统组装。
+- `qts/infra/models.py`: Pydantic 配置模型与入口数据模型。
+- `qts/infra/config.py`: YAML 配置加载、保存与系统组装。
 - `qts/infra/system.py`: 系统编排与多决策系统门面。
 - `qts/infra/report.py`: 统一报表与信号规范。
 - `qts/infra/diagnostics.py`: 风险状态判断。
@@ -31,7 +31,7 @@
 
 ## configs/
 - `configs/`: 正式系统配置样例。
-- `configs/qts.config.json`: 默认中文配置样例。
-- `configs/backtest.json`: 回测入口配置样例。
-- `configs/close_report.json`: 收盘决策入口配置样例。
-- `configs/stock_selection.json`: 选股入口配置样例。
+- `configs/qts.yaml`: 默认配置样例。
+- `configs/backtest.yaml`: 回测入口配置样例。
+- `configs/close_report.yaml`: 收盘决策入口配置样例。
+- `configs/stock_selection.yaml`: 选股入口配置样例。

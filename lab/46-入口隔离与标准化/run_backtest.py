@@ -9,7 +9,6 @@ from entry_helpers import (
     EntryRun,
     default_artifact_dir,
     enrich_with_pnl,
-    resolve_config_path,
     run_configured_system,
     save_frame,
     save_json_payload,

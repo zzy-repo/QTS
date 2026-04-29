@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from pandera.errors import SchemaErrors
 
 from ...paths import REPO_ROOT
+from ..frame_schemas import HISTORY_SCHEMA, collect_schema_issues
 
 _CACHE_ENV_VAR = "QTS_MARKET_CACHE_DIR"
 _CACHE_SUBDIR = ".cache/qts-market"
@@ -74,7 +76,11 @@ def ensure_history_frame(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     else:
         frame["provider"] = str(df.attrs.get("provider", "unknown"))
     frame = frame[CACHE_COLUMNS].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
-    return frame
+    try:
+        return HISTORY_SCHEMA.validate(frame, lazy=True)
+    except SchemaErrors as exc:
+        issue_text = "; ".join(collect_schema_issues(exc))
+        raise ValueError(f"invalid history cache frame: {issue_text}") from exc
 
 
 def read_cache_frame(path: Path) -> pd.DataFrame:
@@ -159,7 +165,11 @@ def merge_history_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
         .drop_duplicates(subset=["date"], keep="last")
         .reset_index(drop=True)
     )
-    return merged[CACHE_COLUMNS]
+    try:
+        return HISTORY_SCHEMA.validate(merged[CACHE_COLUMNS], lazy=True)
+    except SchemaErrors as exc:
+        issue_text = "; ".join(collect_schema_issues(exc))
+        raise ValueError(f"invalid merged history frame: {issue_text}") from exc
 
 
 def updated_at() -> str:

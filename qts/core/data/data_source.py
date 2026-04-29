@@ -9,7 +9,9 @@ import numpy as np
 import pandas as pd
 import requests
 from loguru import logger
+from pandera.errors import SchemaErrors
 
+from ..frame_schemas import HISTORY_SCHEMA, collect_schema_issues
 from .cache import (
     CACHE_COLUMNS,
     compact_date,
@@ -206,7 +208,13 @@ def normalize_daily_history(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     for column in STANDARD_COLUMNS:
         if column not in normalized.columns:
             normalized[column] = pd.NA
-    return normalized[STANDARD_COLUMNS].sort_values("date").reset_index(drop=True)
+    normalized["provider"] = str(df.attrs.get("provider", "unknown"))
+    try:
+        validated = HISTORY_SCHEMA.validate(normalized[STANDARD_COLUMNS + ["provider"]], lazy=True)
+    except SchemaErrors as exc:
+        issue_text = "; ".join(collect_schema_issues(exc))
+        raise ValueError(f"invalid normalized history: {issue_text}") from exc
+    return validated[STANDARD_COLUMNS].sort_values("date").reset_index(drop=True)
 
 
 def save_csv(df: pd.DataFrame, path: Path) -> None:
@@ -217,29 +225,32 @@ def save_csv(df: pd.DataFrame, path: Path) -> None:
 
 def quality_checks(df: pd.DataFrame) -> list[str]:
     """执行基础质量检查。"""
+    frame = df.copy()
+    if "provider" not in frame.columns:
+        frame["provider"] = "unknown"
     issues: list[str] = []
-    if df.empty:
+    if frame.empty:
         issues.append("数据为空")
         return issues
-    if df["date"].isna().any():
-        issues.append("日期列存在空值")
-    if df["date"].duplicated().any():
+    try:
+        HISTORY_SCHEMA.validate(frame[[*HISTORY_SCHEMA.columns.keys()]], lazy=True)
+    except SchemaErrors as exc:
+        issues.extend(collect_schema_issues(exc))
+    if frame["date"].duplicated().any():
         issues.append("日期列存在重复记录")
-    if df["date"].tolist() != sorted(df["date"].tolist()):
+    if frame["date"].tolist() != sorted(frame["date"].tolist()):
         issues.append("日期列不是升序排列")
-    for column in ["open", "high", "low", "close"]:
-        if (pd.to_numeric(df[column], errors="coerce") <= 0).any():
+    for column in ["open", "high", "low"]:
+        if column in frame.columns and (pd.to_numeric(frame[column], errors="coerce") <= 0).any():
             issues.append(f"{column} 列存在非正数")
-    if (pd.to_numeric(df["volume"], errors="coerce") < 0).any():
-        issues.append("volume 列存在负数")
-    high_too_low = pd.to_numeric(df["high"], errors="coerce") < pd.concat(
-        [pd.to_numeric(df["open"], errors="coerce"), pd.to_numeric(df["close"], errors="coerce")],
+    high_too_low = pd.to_numeric(frame["high"], errors="coerce") < pd.concat(
+        [pd.to_numeric(frame["open"], errors="coerce"), pd.to_numeric(frame["close"], errors="coerce")],
         axis=1,
     ).max(axis=1)
     if high_too_low.any():
         issues.append("部分记录的 high 小于 open 或 close")
-    low_too_high = pd.to_numeric(df["low"], errors="coerce") > pd.concat(
-        [pd.to_numeric(df["open"], errors="coerce"), pd.to_numeric(df["close"], errors="coerce")],
+    low_too_high = pd.to_numeric(frame["low"], errors="coerce") > pd.concat(
+        [pd.to_numeric(frame["open"], errors="coerce"), pd.to_numeric(frame["close"], errors="coerce")],
         axis=1,
     ).min(axis=1)
     if low_too_high.any():

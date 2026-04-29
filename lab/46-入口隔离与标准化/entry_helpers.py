@@ -9,11 +9,12 @@ import numpy as np
 import pandas as pd
 
 from bootstrap import ROOT
-from qts.infra.config import QTSConfig, build_system_from_config, load_qts_config
+from qts.infra.config import build_system_from_config, load_qts_config
 from qts.core.data.data_source import SyncResult, sync_symbol_history
 from qts.core.data.models import MarketPanel
+from qts.infra.models import QTSConfig
+from qts.infra.report import latest_signal_frame, normalize_signal_frame
 
-SIGNAL_COLUMNS = ["date", "symbol", "rank", "score", "weight"]
 CACHE_COLUMNS = ["date", "symbol", "close", "volume", "amount"]
 
 
@@ -157,29 +158,6 @@ def run_configured_system(
     signals = normalize_signal_frame(result.strategy_signals)
     signals.attrs["cache_results"] = sync_results
     return resolved, config, market, result, signals
-
-
-def normalize_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    normalized = frame.copy()
-    for column in SIGNAL_COLUMNS:
-        if column not in normalized.columns:
-            normalized[column] = pd.NA
-    normalized["date"] = pd.to_datetime(normalized["date"]).dt.strftime("%Y-%m-%d")
-    normalized["symbol"] = normalized["symbol"].astype(str)
-    normalized["rank"] = pd.to_numeric(normalized["rank"], errors="coerce").astype("Int64")
-    normalized["score"] = pd.to_numeric(normalized["score"], errors="coerce")
-    normalized["weight"] = pd.to_numeric(normalized["weight"], errors="coerce")
-    ordered_columns = SIGNAL_COLUMNS + [column for column in normalized.columns if column not in SIGNAL_COLUMNS]
-    normalized = normalized[ordered_columns]
-    return normalized.sort_values(["date", "rank", "symbol"], kind="mergesort").reset_index(drop=True)
-
-
-def latest_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    normalized = normalize_signal_frame(frame)
-    if normalized.empty:
-        return normalized
-    latest_date = normalized["date"].max()
-    return normalized[normalized["date"].eq(latest_date)].copy().reset_index(drop=True)
 
 
 def enrich_with_pnl(signals: pd.DataFrame, pnl: pd.DataFrame) -> pd.DataFrame:

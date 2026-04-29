@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Callable, Literal
 
 import pandas as pd
+from pandera.errors import SchemaErrors
+
+from ..core.frame_schemas import SIGNAL_SCHEMA, collect_schema_issues
 
 SIGNAL_COLUMNS = ["date", "symbol", "rank", "score", "weight"]
 ReportKind = Literal["backtest", "close", "selection"]
@@ -18,10 +21,14 @@ def _format_signal_date(value: object) -> str:
 
 def normalize_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
     """标准化信号字段。"""
+    if frame.empty:
+        return pd.DataFrame(columns=SIGNAL_COLUMNS)
     normalized = frame.copy()
-    for column in SIGNAL_COLUMNS:
-        if column not in normalized.columns:
-            normalized[column] = pd.NA
+    try:
+        normalized = SIGNAL_SCHEMA.validate(normalized, lazy=True)
+    except SchemaErrors as exc:
+        issue_text = "; ".join(collect_schema_issues(exc))
+        raise ValueError(f"invalid signal frame: {issue_text}") from exc
     normalized["date"] = pd.to_datetime(normalized["date"], format="mixed").map(_format_signal_date)
     normalized["symbol"] = normalized["symbol"].astype(str)
     normalized["rank"] = pd.to_numeric(normalized["rank"], errors="coerce").astype("Int64")

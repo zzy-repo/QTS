@@ -1,126 +1,124 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..core.data.models import MarketPanel
 from ..core.portfolio.results import SystemRunResult
 
+StrategyKind = Literal["factor"]
+FactorKind = Literal["momentum", "trend", "sharpe"]
+AllocationMode = Literal["score", "equal", "risk_parity", "optimized"]
+OptimizerMode = Literal["score", "equal", "inv_vol", "blend", "capped"]
+ExecutionMode = Literal["backtest", "sim", "paper"]
+ReportKind = Literal["backtest", "close", "selection"]
+EntryOutput = Literal["signals", "report", "pnl", "run_summary"]
 
-@dataclass(frozen=True)
-class MarketConfig:
-    """描述市场数据配置。"""
+
+class QTSBaseModel(BaseModel):
+    """Shared pydantic settings for config models."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class RuntimeConfig(QTSBaseModel):
+    """Runtime-only options consumed by the CLI entrypoint."""
+
+    summary_only: bool = False
+    cache_root: str | None = None
+
+
+class MarketConfig(QTSBaseModel):
+    """Market data range and universe."""
 
     symbols: list[str]
     start_date: str
     end_date: str
     allow_synthetic_fallback: bool = False
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "标的池": list(self.symbols),
-            "开始日期": self.start_date,
-            "结束日期": self.end_date,
-            "允许合成回退": self.allow_synthetic_fallback,
-        }
+    @field_validator("symbols")
+    @classmethod
+    def _validate_symbols(cls, value: list[str]) -> list[str]:
+        symbols = [item.strip() for item in value if item.strip()]
+        if not symbols:
+            raise ValueError("market.symbols must contain at least one symbol")
+        return symbols
 
 
-@dataclass(frozen=True)
-class StrategyConfig:
-    """描述单个策略配置。"""
+class StrategyConfig(QTSBaseModel):
+    """Single strategy configuration."""
 
     name: str
-    strategy_kind: str
-    factor_kinds: list[str]
-    factor_weights: dict[str, float] = field(default_factory=dict)
+    strategy_kind: StrategyKind = "factor"
+    factor_kinds: list[FactorKind]
+    factor_weights: dict[str, float] = Field(default_factory=dict)
     lookback: int = 20
     top_n: int = 3
 
-    def to_dict(self) -> dict[str, object]:
-        factor_label_map = {"momentum": "动量", "trend": "趋势", "sharpe": "夏普"}
-        return {
-            "名称": self.name,
-            "策略类型": {"factor": "因子策略"}.get(self.strategy_kind, self.strategy_kind),
-            "因子列表": [factor_label_map.get(kind, kind) for kind in self.factor_kinds],
-            "因子权重": {factor_label_map.get(kind, kind): float(weight) for kind, weight in self.factor_weights.items()},
-            "回看周期": self.lookback,
-            "选取数量": self.top_n,
-        }
+    @field_validator("factor_kinds")
+    @classmethod
+    def _validate_factor_kinds(cls, value: list[FactorKind]) -> list[FactorKind]:
+        if not value:
+            raise ValueError("strategies[].factor_kinds must contain at least one factor")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_factor_weights(self) -> "StrategyConfig":
+        unknown = set(self.factor_weights) - set(self.factor_kinds)
+        if unknown:
+            raise ValueError(f"factor_weights contains unknown factors: {sorted(unknown)}")
+        return self
 
 
-@dataclass(frozen=True)
-class SystemConfig:
-    """描述系统运行配置。"""
+class SystemConfig(QTSBaseModel):
+    """Portfolio construction and execution configuration."""
 
-    allocation_mode: str = "score"
-    optimizer_mode: str = "score"
-    execution_mode: str = "backtest"
+    allocation_mode: AllocationMode = "score"
+    optimizer_mode: OptimizerMode = "score"
+    execution_mode: ExecutionMode = "backtest"
     initial_cash: float = 1_000_000.0
     lot_size: int = 100
-    capital_caps: dict[str, float] = field(default_factory=dict)
+    capital_caps: dict[str, float] = Field(default_factory=dict)
     optimizer_cap: float = 0.4
     max_adv_pct: float = 0.02
     slippage_base_bps: float = 1.0
     slippage_participation_scale: float = 0.035
     slippage_vol_scale: float = 0.15
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "分配器": {"score": "打分", "equal": "等权", "risk_parity": "风险平价", "optimized": "优化组合"}.get(self.allocation_mode, self.allocation_mode),
-            "优化器": {"score": "打分", "equal": "等权", "inv_vol": "逆波动率", "blend": "混合", "capped": "截断"}.get(self.optimizer_mode, self.optimizer_mode),
-            "执行器": {"backtest": "回测", "sim": "模拟", "paper": "纸面"}.get(self.execution_mode, self.execution_mode),
-            "初始资金": self.initial_cash,
-            "手数": self.lot_size,
-            "资本上限": dict(self.capital_caps),
-            "优化器截断上限": self.optimizer_cap,
-            "最大ADV占比": self.max_adv_pct,
-            "基础滑点bp": self.slippage_base_bps,
-            "参与率滑点系数": self.slippage_participation_scale,
-            "波动率滑点系数": self.slippage_vol_scale,
-        }
 
-
-@dataclass(frozen=True)
-class EntryConfig:
-    """描述统一入口的报表与产物输出配置。"""
+class EntryConfig(QTSBaseModel):
+    """Artifact outputs for a run profile."""
 
     name: str = "qts"
-    report_kind: str = "backtest"
+    report_kind: ReportKind = "backtest"
     artifact_dir: str = "artifacts/qts"
-    outputs: list[str] = field(default_factory=lambda: ["signals", "report", "run_summary"])
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "名称": self.name,
-            "报表类型": self.report_kind,
-            "输出目录": self.artifact_dir,
-            "输出内容": list(self.outputs),
-        }
+    outputs: list[EntryOutput] = Field(default_factory=lambda: ["signals", "report", "run_summary"])
 
 
-@dataclass(frozen=True)
-class QTSConfig:
-    """描述完整系统配置。"""
+class QTSConfig(QTSBaseModel):
+    """Root configuration for a full system run."""
 
     market: MarketConfig
     system: SystemConfig
     strategies: list[StrategyConfig]
-    entry: EntryConfig = field(default_factory=EntryConfig)
+    entry: EntryConfig = Field(default_factory=EntryConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "市场": self.market.to_dict(),
-            "系统": self.system.to_dict(),
-            "策略": [strategy.to_dict() for strategy in self.strategies],
-            "入口": self.entry.to_dict(),
-        }
+    @field_validator("strategies")
+    @classmethod
+    def _validate_strategies(cls, value: list[StrategyConfig]) -> list[StrategyConfig]:
+        if not value:
+            raise ValueError("strategies must contain at least one strategy")
+        return value
 
 
 @dataclass(frozen=True)
 class EntryRun:
-    """保存单入口运行结果。"""
+    """Persisted outputs from a single entry run."""
 
     name: str
     config_path: Path | None

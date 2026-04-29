@@ -56,39 +56,35 @@ def _build_allocator_market(close: pd.DataFrame) -> MarketPanel:
 
 def test_qts_config_round_trip(tmp_path: Path) -> None:
     config = default_qts_config()
-    target = tmp_path / "qts.config.json"
+    target = tmp_path / "qts.yaml"
     save_qts_config(config, target)
 
     loaded = load_qts_config(target)
 
-    assert loaded.to_dict() == config.to_dict()
+    assert loaded.model_dump(mode="json") == config.model_dump(mode="json")
 
 
 def test_load_qts_config_parses_multi_factor_schema(tmp_path: Path) -> None:
-    target = tmp_path / "multi_factor.config.json"
+    target = tmp_path / "multi_factor.yaml"
     target.write_text(
         """
-        {
-          "市场": {
-            "标的池": ["000001", "000002"],
-            "开始日期": "20240102",
-            "结束日期": "20240131"
-          },
-          "系统": {
-            "优化器": "打分",
-            "执行器": "回测"
-          },
-          "策略": [
-            {
-              "名称": "core_blend",
-              "策略类型": "因子策略",
-              "因子列表": ["动量", "趋势", "夏普"],
-              "因子权重": {"动量": 0.5, "趋势": 0.3, "夏普": 0.2},
-              "回看周期": 12,
-              "选取数量": 4
-            }
-          ]
-        }
+market:
+  symbols: ["000001", "000002"]
+  start_date: "20240102"
+  end_date: "20240131"
+system:
+  optimizer_mode: score
+  execution_mode: backtest
+strategies:
+  - name: core_blend
+    strategy_kind: factor
+    factor_kinds: [momentum, trend, sharpe]
+    factor_weights:
+      momentum: 0.5
+      trend: 0.3
+      sharpe: 0.2
+    lookback: 12
+    top_n: 4
         """.strip(),
         encoding="utf-8",
     )
@@ -118,7 +114,7 @@ def test_system_builds_and_runs_on_synthetic_market() -> None:
 
 
 def test_default_entry_config_points_to_repo_root() -> None:
-    assert DEFAULT_ENTRY_CONFIG == REPO_ROOT / "configs" / "qts.config.json"
+    assert DEFAULT_ENTRY_CONFIG == REPO_ROOT / "configs" / "qts.yaml"
 
 
 def test_default_market_cache_root_points_to_repo_root() -> None:
@@ -138,9 +134,9 @@ def test_entry_profiles_generate_expected_reports(monkeypatch) -> None:
 
     monkeypatch.setattr(entrypoints_module, "load_market_from_config", fake_load_market_from_config)
 
-    backtest_run = run_entry(REPO_ROOT / "configs" / "backtest.json")
-    close_run = run_entry(REPO_ROOT / "configs" / "close_report.json")
-    stock_run = run_entry(REPO_ROOT / "configs" / "stock_selection.json")
+    backtest_run = run_entry(REPO_ROOT / "configs" / "backtest.yaml")
+    close_run = run_entry(REPO_ROOT / "configs" / "close_report.yaml")
+    stock_run = run_entry(REPO_ROOT / "configs" / "stock_selection.yaml")
 
     assert "signal_date" in backtest_run.result.aggregate_pnl.columns
     assert backtest_run.result.aggregate_pnl["annualized_return"].nunique(dropna=False) > 1
@@ -169,12 +165,12 @@ def test_run_loaded_config_preserves_runtime_overrides(monkeypatch) -> None:
     monkeypatch.setattr(entrypoints_module, "load_market_from_config", fake_load_market_from_config)
 
     config = apply_overrides(
-        load_qts_config(REPO_ROOT / "configs" / "backtest.json"),
+        load_qts_config(REPO_ROOT / "configs" / "backtest.yaml"),
         start_date="20240115",
         symbols=["000001", "600519"],
-        execution_mode="纸面",
+        execution_mode="paper",
     )
-    run = entrypoints_module._run_loaded_config(config, config_path=REPO_ROOT / "configs" / "backtest.json")
+    run = entrypoints_module._run_loaded_config(config, config_path=REPO_ROOT / "configs" / "backtest.yaml")
 
     assert run.config.market.start_date == "20240115"
     assert run.config.market.symbols == ["000001", "600519"]
@@ -936,7 +932,7 @@ def test_signal_generator_rejects_incomplete_signal_schema() -> None:
         ]
     )
 
-    with pytest.raises(ValueError, match="缺少字段：rank, score"):
+    with pytest.raises(ValueError, match="rank|score"):
         generator.generate(_build_synthetic_market())
 
 
@@ -1018,7 +1014,7 @@ def test_optimizer_rejects_missing_volatility_for_blend() -> None:
 def test_apply_overrides_normalizes_cli_aliases() -> None:
     config = default_qts_config()
 
-    updated = apply_overrides(config, allocation_mode="风险平价", optimizer_mode="混合", execution_mode="回测")
+    updated = apply_overrides(config, allocation_mode="risk_parity", optimizer_mode="blend", execution_mode="backtest")
 
     assert updated.system.allocation_mode == "risk_parity"
     assert updated.system.optimizer_mode == "blend"

@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import pandas as pd
+from pandera.errors import SchemaErrors
 
 from ..data.models import ExecutionRun, MarketPanel
+from ..frame_schemas import PNL_SCHEMA, TARGET_SCHEMA, collect_schema_issues
 from ..strategy.specs import StrategySpec
 from .allocators.base import AllocationContext, AllocationResult
 from .results import StrategyRunResult, SystemRunResult, daily_pnl_view, rolling_annualized_return
@@ -54,7 +56,12 @@ def _strategy_target(optimized: pd.DataFrame) -> pd.DataFrame:
     """把优化结果整理成执行器输入。"""
     if optimized.empty:
         return pd.DataFrame(columns=["date", "symbol", "weight"])
-    return optimized[["date", "symbol", "weight"]]
+    target = optimized[["date", "symbol", "weight"]]
+    try:
+        return TARGET_SCHEMA.validate(target, lazy=True)
+    except SchemaErrors as exc:
+        issue_text = "; ".join(collect_schema_issues(exc))
+        raise ValueError(f"invalid target frame: {issue_text}") from exc
 
 
 def _empty_execution_run() -> ExecutionRun:
@@ -71,6 +78,11 @@ def _execution_pnl_frame(execution: ExecutionRun, strategy_name: str, allocation
     if execution.pnl.empty:
         return None
     frame = execution.pnl[["date", "signal_date", "gross_return"]].copy()
+    try:
+        frame = PNL_SCHEMA.validate(frame, lazy=True)
+    except SchemaErrors as exc:
+        issue_text = "; ".join(collect_schema_issues(exc))
+        raise ValueError(f"invalid execution pnl frame: {issue_text}") from exc
     frame["strategy"] = strategy_name
     frame["allocation_weight"] = allocation_cash / initial_cash if initial_cash else 0.0
     return frame
