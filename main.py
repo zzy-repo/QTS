@@ -16,10 +16,10 @@ from qts.infra.config import (
 )
 from qts.infra.entrypoints import (
     DEFAULT_ENTRY_CONFIG,
+    _resolve_entry_config_path,
+    _run_loaded_config,
+    _save_entry_artifacts,
     resolve_artifact_dir,
-    resolve_entry_config_path,
-    run_entry,
-    save_entry_artifacts,
 )
 from qts.infra.logging_utils import configure_logging
 from qts.infra.reporter import summarize_system_run
@@ -95,7 +95,7 @@ def main() -> None:
         return
 
     cache_root = Path(args.cache_root) if args.cache_root else None
-    resolved_config = resolve_entry_config_path(args.config_path)
+    resolved_config = _resolve_entry_config_path(args.config_path)
     config = load_qts_config(resolved_config)
     config = apply_overrides(
         config,
@@ -123,8 +123,8 @@ def main() -> None:
     artifact_dir = resolve_artifact_dir(config)
     log_path = configure_logging(config.entry.name, artifact_dir)
     logger.info("正式入口启动 输出目录={} 日志路径={} 配置路径={}", artifact_dir, log_path, resolved_config or DEFAULT_ENTRY_CONFIG)
-    run = run_entry(config_path=resolved_config, cache_root=cache_root)
-    save_entry_artifacts(run)
+    run = _run_loaded_config(config, config_path=resolved_config, cache_root=cache_root)
+    _save_entry_artifacts(run)
     logger.info("正式入口完成 入口={} 配置路径={}", run.name, run.config_path or DEFAULT_ENTRY_CONFIG)
     print(f"正式入口已完成: {run.name}")
 

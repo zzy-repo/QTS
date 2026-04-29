@@ -156,6 +156,31 @@ def test_entry_profiles_generate_expected_reports(monkeypatch) -> None:
     assert seen_cache_roots == [None, None, None]
 
 
+def test_run_loaded_config_preserves_runtime_overrides(monkeypatch) -> None:
+    market = _build_synthetic_market()
+
+    from qts.infra import entrypoints as entrypoints_module
+
+    def fake_load_market_from_config(config, cache_root=None):
+        assert config.market.start_date == "20240115"
+        assert config.market.symbols == ["000001", "600519"]
+        return market
+
+    monkeypatch.setattr(entrypoints_module, "load_market_from_config", fake_load_market_from_config)
+
+    config = apply_overrides(
+        load_qts_config(REPO_ROOT / "configs" / "backtest.json"),
+        start_date="20240115",
+        symbols=["000001", "600519"],
+        execution_mode="纸面",
+    )
+    run = entrypoints_module._run_loaded_config(config, config_path=REPO_ROOT / "configs" / "backtest.json")
+
+    assert run.config.market.start_date == "20240115"
+    assert run.config.market.symbols == ["000001", "600519"]
+    assert run.config.system.execution_mode == "paper"
+
+
 def test_sharpe_strategy_and_blend_optimizer_run_on_synthetic_market() -> None:
     config = QTSConfig(
         market=MarketConfig(

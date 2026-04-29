@@ -1,21 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pandas as pd
 
 from ..core.analysis import performance_summary_from_pnl
 from ..core.portfolio.results import SystemRunResult, daily_pnl_view, final_annualized_return
-
-
-@dataclass(frozen=True)
-class Reporter:
-    """把系统结果汇总成报表。"""
-
-    def summarize(self, result: SystemRunResult, benchmark: pd.Series | None = None) -> pd.DataFrame:
-        """生成系统汇总表。"""
-        return summarize_system_run(result, benchmark=benchmark)
-
 
 def summarize_system_run(result: SystemRunResult, benchmark: pd.Series | None = None) -> pd.DataFrame:
     """汇总系统运行结果。"""

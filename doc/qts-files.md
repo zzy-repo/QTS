@@ -28,7 +28,6 @@
 - `qts/infra/diagnostics.py`: 风险状态判断。
 - `qts/infra/reporter.py`: 系统结果汇总报表。
 - `qts/infra/entrypoints.py`: 正式统一入口编排与产物落盘。
-- `qts/infra/presets.py`: 默认策略与默认系统组装。
 
 ## configs/
 - `configs/`: 正式系统配置样例。

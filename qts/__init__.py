@@ -16,7 +16,6 @@ from .infra.entrypoints import (
     run_entry,
 )
 from .infra.models import EntryConfig, MarketConfig, StrategyConfig, SystemConfig
-from .infra.presets import build_default_strategies, build_default_system, run_demo
 from .infra.report import build_report, latest_signal_frame, normalize_signal_frame
 from .infra.system import MultiDecisionSystem
 
@@ -32,8 +31,6 @@ __all__ = [
     "StrategyConfig",
     "SystemConfig",
     "apply_overrides",
-    "build_default_strategies",
-    "build_default_system",
     "build_report",
     "build_strategies_from_config",
     "build_system_from_config",
@@ -44,7 +41,6 @@ __all__ = [
     "load_market_from_config",
     "load_qts_config",
     "normalize_signal_frame",
-    "run_demo",
     "run_entry",
     "save_qts_config",
 ]
