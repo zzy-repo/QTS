@@ -3,13 +3,9 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable
-
-import pandas as pd
 
 from ..core.data.data_source import DEFAULT_UNIVERSE, load_market_panel
-from ..core.data.models import StrategyInput
-from ..core.signal import momentum_signal, sharpe_signal, trend_follow_signal
+from ..core.signal import build_strategy_spec
 from ..core.signal.specs import StrategySpec
 from .models import MarketConfig, QTSConfig, StrategyConfig, SystemConfig
 
@@ -87,39 +83,6 @@ def _as_bool(value: object, default: bool = False) -> bool:
     if text in {"0", "false", "no", "n", "off", "否", "禁用", "关闭"}:
         return False
     return default
-
-
-def _strategy_input(data: StrategyInput, *, lookback: int, top_n: int) -> StrategyInput:
-    """基于调用时参数重建策略输入。"""
-    return StrategyInput(
-        close=data.close,
-        volume=data.volume,
-        amount=data.amount,
-        lookback=lookback,
-        top_n=top_n,
-    )
-
-
-def _build_signal_builder(signal_fn: Callable[[StrategyInput], pd.DataFrame], *, lookback: int, top_n: int) -> Callable[[StrategyInput], pd.DataFrame]:
-    """把具体信号函数包装成统一的策略构建器。"""
-
-    def builder(data: StrategyInput) -> pd.DataFrame:
-        return signal_fn(_strategy_input(data, lookback=lookback, top_n=top_n))
-
-    return builder
-
-
-def _build_strategy_builder(kind: str, *, lookback: int, top_n: int) -> Callable[[StrategyInput], pd.DataFrame]:
-    """构建指定策略类型的信号生成器。"""
-    signal_builders: dict[str, Callable[[StrategyInput], pd.DataFrame]] = {
-        "momentum": momentum_signal,
-        "trend": trend_follow_signal,
-        "sharpe": sharpe_signal,
-    }
-    signal_fn = signal_builders.get(kind)
-    if signal_fn is None:
-        raise ValueError(f"不支持的策略类型: {kind}")
-    return _build_signal_builder(signal_fn, lookback=lookback, top_n=top_n)
 
 
 def _build_market_config(payload: dict[str, object]) -> MarketConfig:
@@ -239,11 +202,10 @@ def save_qts_config(config: QTSConfig, path: str | Path) -> Path:
 
 def build_strategies_from_config(config: QTSConfig) -> list[StrategySpec]:
     """按配置构建策略列表。"""
-    strategies: list[StrategySpec] = []
-    for item in config.strategies:
-        builder = _build_strategy_builder(item.kind, lookback=item.lookback, top_n=item.top_n)
-        strategies.append(StrategySpec(name=item.name, builder=builder, lookback=item.lookback, top_n=item.top_n))
-    return strategies
+    return [
+        build_strategy_spec(item.name, item.kind, lookback=item.lookback, top_n=item.top_n)
+        for item in config.strategies
+    ]
 
 
 def build_system_from_config(config: QTSConfig):

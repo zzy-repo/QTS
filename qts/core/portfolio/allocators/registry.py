@@ -28,3 +28,11 @@ def build_allocators() -> dict[str, AllocatorAdapter]:
         "risk_parity": AllocatorAdapter(name="risk_parity", run=risk_parity_allocate_capital),
         "optimized": AllocatorAdapter(name="optimized", run=optimized_allocate_capital),
     }
+
+
+def get_allocator(mode: str) -> AllocatorAdapter:
+    """按名称获取单个分配器实现。"""
+    allocator = build_allocators().get(mode)
+    if allocator is None:
+        raise ValueError(f"未知的分配器模式：{mode}")
+    return allocator

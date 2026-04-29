@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
-from .optimization import build_optimizers
+from .optimizers import OptimizerAdapter, get_optimizer
 
 
 @dataclass(frozen=True)
@@ -13,10 +13,11 @@ class Optimizer:
 
     mode: str = "score"
     capped_cap: float = 0.4
+    _adapter: OptimizerAdapter = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_adapter", get_optimizer(self.mode, capped_cap=self.capped_cap))
 
     def optimize(self, signals: pd.DataFrame) -> pd.DataFrame:
         """执行选定的优化器。"""
-        optimizer = build_optimizers(capped_cap=self.capped_cap).get(self.mode)
-        if optimizer is None:
-            raise ValueError(f"未知的优化器模式：{self.mode}")
-        return optimizer.run(signals)
+        return self._adapter.run(signals)

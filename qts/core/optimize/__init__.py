@@ -1,7 +1,7 @@
 """Core optimize layer."""
 
 from .engine import Optimizer
-from .optimization import (
+from .optimizers import (
     OptimizerAdapter,
     blend_weight_optimizer,
     build_optimizers,
