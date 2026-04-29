@@ -33,15 +33,18 @@ class StrategyConfig:
 
     name: str
     strategy_kind: str
-    factor_kind: str
+    factor_kinds: list[str]
+    factor_weights: dict[str, float] = field(default_factory=dict)
     lookback: int = 20
     top_n: int = 3
 
     def to_dict(self) -> dict[str, object]:
+        factor_label_map = {"momentum": "动量", "trend": "趋势", "sharpe": "夏普"}
         return {
             "名称": self.name,
-            "策略类型": {"single_factor": "单因子"}.get(self.strategy_kind, self.strategy_kind),
-            "因子类型": {"momentum": "动量", "trend": "趋势", "sharpe": "夏普"}.get(self.factor_kind, self.factor_kind),
+            "策略类型": {"factor": "因子策略"}.get(self.strategy_kind, self.strategy_kind),
+            "因子列表": [factor_label_map.get(kind, kind) for kind in self.factor_kinds],
+            "因子权重": {factor_label_map.get(kind, kind): float(weight) for kind, weight in self.factor_weights.items()},
             "回看周期": self.lookback,
             "选取数量": self.top_n,
         }

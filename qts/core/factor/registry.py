@@ -11,7 +11,7 @@ from .factors import momentum_signal, sharpe_signal, trend_follow_signal
 
 @dataclass(frozen=True)
 class FactorAdapter:
-    """描述一个可注册的单因子实现。"""
+    """描述一个可注册的因子实现。"""
 
     name: str
     run: Callable[[StrategyInput], pd.DataFrame]
@@ -25,7 +25,7 @@ _FACTOR_ADAPTERS: dict[str, FactorAdapter] = {
 
 
 def build_factor_adapters() -> dict[str, FactorAdapter]:
-    """构建可用单因子集合。"""
+    """构建可用因子集合。"""
     return dict(_FACTOR_ADAPTERS)
 
 

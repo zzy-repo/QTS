@@ -72,7 +72,7 @@ def ensure_history_frame(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     if "provider" in frame.columns:
         frame["provider"] = frame["provider"].fillna("unknown").astype(str)
     else:
-        frame["provider"] = str(df.attrs.get("provider", "legacy"))
+        frame["provider"] = str(df.attrs.get("provider", "unknown"))
     frame = frame[CACHE_COLUMNS].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
     return frame
 
@@ -153,7 +153,7 @@ def merge_history_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
     merged["close"] = pd.to_numeric(merged["close"], errors="coerce")
     merged["volume"] = pd.to_numeric(merged["volume"], errors="coerce")
     merged["amount"] = pd.to_numeric(merged["amount"], errors="coerce")
-    merged["provider"] = merged["provider"].fillna("unknown").astype(str) if "provider" in merged.columns else "legacy"
+    merged["provider"] = merged["provider"].fillna("unknown").astype(str) if "provider" in merged.columns else "unknown"
     merged = (
         merged.sort_values("date", kind="mergesort")
         .drop_duplicates(subset=["date"], keep="last")

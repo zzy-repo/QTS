@@ -1,5 +1,5 @@
 """Concrete strategy implementations."""
 
-from .single_factor import build_single_factor_strategy
+from .factor_blend import build_factor_strategy
 
-__all__ = ["build_single_factor_strategy"]
+__all__ = ["build_factor_strategy"]

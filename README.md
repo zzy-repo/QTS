@@ -40,6 +40,19 @@
 .venv/bin/python -m qts.cli --write-default-config configs/qts.config.json
 ```
 
+策略配置统一使用 `因子列表`，可选 `因子权重`。单因子也写成单元素列表，例如：
+
+```json
+{
+  "名称": "core_blend",
+  "策略类型": "因子策略",
+  "因子列表": ["动量", "趋势", "夏普"],
+  "因子权重": {"动量": 0.4, "趋势": 0.3, "夏普": 0.3},
+  "回看周期": 20,
+  "选取数量": 3
+}
+```
+
 行情数据默认会缓存到 `.cache/qts-market/`，供不同正式入口共享复用；可通过 `QTS_MARKET_CACHE_DIR` 覆盖。
 
 `artifacts/backtest/`、`artifacts/close_report/`、`artifacts/stock_selection/` 仅保存各入口自己的结果、日志和摘要，不再承载行情缓存。

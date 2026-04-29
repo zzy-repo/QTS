@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import pandas as pd
@@ -13,8 +13,9 @@ class StrategySpec:
     """描述一个可执行的策略入口。"""
 
     name: str
-    strategy_kind: str
-    factor_kind: str
     builder: Callable[[StrategyInput], pd.DataFrame]
+    strategy_kind: str = "factor"
+    factor_kinds: list[str] = field(default_factory=list)
+    factor_weights: dict[str, float] = field(default_factory=dict)
     lookback: int = 20
     top_n: int = 3

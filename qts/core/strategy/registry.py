@@ -7,11 +7,11 @@ import pandas as pd
 from ..data.models import StrategyInput
 from .base import StrategyAdapter
 from .specs import StrategySpec
-from .strategies import build_single_factor_strategy
+from .strategies import build_factor_strategy
 
 
 _STRATEGY_ADAPTERS: dict[str, StrategyAdapter] = {
-    "single_factor": StrategyAdapter(name="single_factor", build=build_single_factor_strategy),
+    "factor": StrategyAdapter(name="factor", build=build_factor_strategy),
 }
 
 
@@ -31,19 +31,21 @@ def get_strategy_adapter(kind: str) -> StrategyAdapter:
 def build_strategy_builder(
     strategy_kind: str,
     *,
-    factor_kind: str,
+    factor_kinds: list[str],
+    factor_weights: dict[str, float] | None,
     lookback: int,
     top_n: int,
 ) -> Callable[[StrategyInput], pd.DataFrame]:
     """按策略类型和参数构建策略执行入口。"""
-    return get_strategy_adapter(strategy_kind).build(factor_kind, lookback, top_n)
+    return get_strategy_adapter(strategy_kind).build(factor_kinds, dict(factor_weights or {}), lookback, top_n)
 
 
 def build_strategy_spec(
     name: str,
     *,
     strategy_kind: str,
-    factor_kind: str,
+    factor_kinds: list[str],
+    factor_weights: dict[str, float] | None = None,
     lookback: int = 20,
     top_n: int = 3,
 ) -> StrategySpec:
@@ -51,10 +53,12 @@ def build_strategy_spec(
     return StrategySpec(
         name=name,
         strategy_kind=strategy_kind,
-        factor_kind=factor_kind,
+        factor_kinds=list(factor_kinds),
+        factor_weights=dict(factor_weights or {}),
         builder=build_strategy_builder(
             strategy_kind,
-            factor_kind=factor_kind,
+            factor_kinds=list(factor_kinds),
+            factor_weights=dict(factor_weights or {}),
             lookback=lookback,
             top_n=top_n,
         ),

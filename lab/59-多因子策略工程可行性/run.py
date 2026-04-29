@@ -35,14 +35,15 @@ class MultiFactorPrototype:
     def build_spec(self) -> StrategySpec:
         return StrategySpec(
             name=self.name,
-            strategy_kind="lab_multi_factor",
-            factor_kind="+".join(self.factor_kinds),
             builder=build_multi_factor_builder(
                 factor_kinds=self.factor_kinds,
                 factor_weights=self.factor_weights,
                 lookback=self.lookback,
                 top_n=self.top_n,
             ),
+            strategy_kind="factor",
+            factor_kinds=list(self.factor_kinds),
+            factor_weights=dict(self.factor_weights),
             lookback=self.lookback,
             top_n=self.top_n,
         )
@@ -228,8 +229,8 @@ def main() -> None:
 
     single_spec = build_strategy_spec(
         "single_momentum",
-        strategy_kind="single_factor",
-        factor_kind="momentum",
+        strategy_kind="factor",
+        factor_kinds=["momentum"],
         lookback=lookback,
         top_n=top_n,
     )

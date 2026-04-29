@@ -12,8 +12,8 @@ from qts.core.data import cache as cache_module
 from qts.core.data.models import ExecutionRun
 from qts.paths import REPO_ROOT
 from qts.core.portfolio.engine import PortfolioManager
-from qts.core.portfolio.allocation import allocate_capital
 from qts.core.portfolio.allocators import build_allocators
+from qts.core.portfolio.allocators.score import score_allocate_capital
 from qts.core.portfolio.allocators.base import AllocationContext
 from qts.core.portfolio.allocators.common import (
     aggregate_strategy_statistics,
@@ -24,8 +24,8 @@ from qts.core.portfolio.allocators.common import (
 from qts.core.portfolio.engine_allocator import Allocator
 from qts.core.portfolio.results import annualized_return, daily_pnl_view
 from qts.core.optimize.engine import Optimizer
-from qts.core.signal.engine import SignalGenerator
-from qts.core.signal.specs import StrategySpec
+from qts.core.strategy.engine import SignalGenerator
+from qts.core.strategy.specs import StrategySpec
 from qts.infra.config import apply_overrides, build_system_from_config, default_qts_config, load_qts_config, save_qts_config
 from qts.infra.entrypoints import (
     DEFAULT_BACKTEST_CONFIG,
@@ -65,6 +65,45 @@ def test_qts_config_round_trip(tmp_path: Path) -> None:
     loaded = load_qts_config(target)
 
     assert loaded.to_dict() == config.to_dict()
+
+
+def test_load_qts_config_parses_multi_factor_schema(tmp_path: Path) -> None:
+    target = tmp_path / "multi_factor.config.json"
+    target.write_text(
+        """
+        {
+          "市场": {
+            "标的池": ["000001", "000002"],
+            "开始日期": "20240102",
+            "结束日期": "20240131"
+          },
+          "系统": {
+            "优化器": "打分",
+            "执行器": "回测"
+          },
+          "策略": [
+            {
+              "名称": "core_blend",
+              "策略类型": "因子策略",
+              "因子列表": ["动量", "趋势", "夏普"],
+              "因子权重": {"动量": 0.5, "趋势": 0.3, "夏普": 0.2},
+              "回看周期": 12,
+              "选取数量": 4
+            }
+          ]
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    loaded = load_qts_config(target)
+    strategy = loaded.strategies[0]
+
+    assert strategy.strategy_kind == "factor"
+    assert strategy.factor_kinds == ["momentum", "trend", "sharpe"]
+    assert strategy.factor_weights == {"momentum": 0.5, "trend": 0.3, "sharpe": 0.2}
+    assert strategy.lookback == 12
+    assert strategy.top_n == 4
 
 
 def test_system_builds_and_runs_on_synthetic_market() -> None:
@@ -137,7 +176,7 @@ def test_sharpe_strategy_and_blend_optimizer_run_on_synthetic_market() -> None:
             slippage_participation_scale=0.035,
             slippage_vol_scale=0.15,
         ),
-        strategies=[StrategyConfig(name="sharpe", kind="sharpe", lookback=15, top_n=3)],
+        strategies=[StrategyConfig(name="sharpe", strategy_kind="factor", factor_kinds=["sharpe"], lookback=15, top_n=3)],
     )
     system = build_system_from_config(config)
     market = _build_synthetic_market()
@@ -148,6 +187,43 @@ def test_sharpe_strategy_and_blend_optimizer_run_on_synthetic_market() -> None:
     assert "performance" in result.snapshot
     assert result.snapshot["optimizer_mode"] == "blend"
     assert pd.isna(result.snapshot["performance"]["turnover"])
+
+
+def test_multi_factor_strategy_runs_on_synthetic_market() -> None:
+    config = QTSConfig(
+        market=MarketConfig(
+            symbols=["000001", "000002", "600519", "601318", "300750"],
+            start_date="20240102",
+            end_date="20240315",
+        ),
+        system=SystemConfig(
+            optimizer_mode="score",
+            execution_mode="backtest",
+            initial_cash=300000.0,
+            lot_size=100,
+        ),
+        strategies=[
+            StrategyConfig(
+                name="core_blend",
+                strategy_kind="factor",
+                factor_kinds=["momentum", "trend", "sharpe"],
+                factor_weights={"momentum": 0.4, "trend": 0.3, "sharpe": 0.3},
+                lookback=15,
+                top_n=3,
+            )
+        ],
+    )
+    system = build_system_from_config(config)
+    market = _build_synthetic_market()
+
+    result = system.run(market)
+    strategy_run = result.strategy_runs[0]
+
+    assert not result.aggregate_pnl.empty
+    assert not strategy_run.signals.empty
+    assert strategy_run.signals["strategy"].unique().tolist() == ["core_blend"]
+    assert "factor_hits" in strategy_run.signals.columns
+    assert strategy_run.signals["weight"].ge(0.0).all()
 
 
 def test_load_market_panel_propagates_unexpected_errors(monkeypatch) -> None:
@@ -321,7 +397,7 @@ def test_portfolio_manager_executes_each_strategy_with_allocated_cash() -> None:
 
         @staticmethod
         def allocate(strategy_signals: pd.DataFrame, *, total_cash: float, caps=None, context=None):
-            return allocate_capital(strategy_signals, total_cash=total_cash, caps=caps)
+            return score_allocate_capital(strategy_signals, total_cash=total_cash, caps=caps)
 
     class _Optimizer:
         mode = "test"
@@ -382,7 +458,7 @@ def test_portfolio_manager_preserves_multiple_signal_dates_for_same_realization_
 
         @staticmethod
         def allocate(strategy_signals: pd.DataFrame, *, total_cash: float, caps=None, context=None):
-            return allocate_capital(strategy_signals, total_cash=total_cash, caps=caps)
+            return score_allocate_capital(strategy_signals, total_cash=total_cash, caps=caps)
 
     class _Optimizer:
         mode = "test"
@@ -441,7 +517,7 @@ def test_portfolio_manager_exposes_cash_left_in_aggregate_semantics() -> None:
 
         @staticmethod
         def allocate(strategy_signals: pd.DataFrame, *, total_cash: float, caps=None, context=None):
-            return allocate_capital(strategy_signals, total_cash=total_cash, caps=caps)
+            return score_allocate_capital(strategy_signals, total_cash=total_cash, caps=caps)
 
     class _Optimizer:
         mode = "test"
@@ -574,7 +650,7 @@ def test_allocate_capital_uses_latest_trading_day_only() -> None:
         ]
     )
 
-    result = allocate_capital(signals, total_cash=400.0)
+    result = score_allocate_capital(signals, total_cash=400.0)
     alloc = result.allocation.set_index("strategy")["allocated_cash"].to_dict()
 
     assert alloc["s1"] == 200.0
@@ -589,7 +665,7 @@ def test_allocate_capital_respects_caps_after_redistribution() -> None:
         ]
     )
 
-    result = allocate_capital(signals, total_cash=1000.0, caps={"s1": 0.4})
+    result = score_allocate_capital(signals, total_cash=1000.0, caps={"s1": 0.4})
     alloc = result.allocation.set_index("strategy")["allocated_cash"].to_dict()
 
     assert alloc["s1"] == 400.0
@@ -826,7 +902,7 @@ def test_signal_generator_validates_strategy_output() -> None:
         generator.generate(_build_synthetic_market())
 
 
-def test_signal_generator_rejects_legacy_signal_schema() -> None:
+def test_signal_generator_rejects_incomplete_signal_schema() -> None:
     generator = SignalGenerator(
         strategies=[
             StrategySpec(
@@ -936,7 +1012,7 @@ def test_cli_allocation_labels_cover_supported_modes() -> None:
     assert cli_module._ALLOCATION_LABELS["optimized"] == "优化组合"
 
 
-def test_package_root_preserves_compatibility_exports() -> None:
+def test_package_root_exports_runtime_entrypoints() -> None:
     import qts
     from qts import data_source
 

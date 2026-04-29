@@ -56,14 +56,3 @@ def score_allocate_capital(
     allocation = pd.DataFrame({"strategy": weights.index, "allocated_cash": weights.values * float(total_cash)})
     cash_left = float(total_cash * cash_left_weight) if caps else float(total_cash - allocation["allocated_cash"].sum())
     return AllocationResult(allocation=allocation, cash_left=cash_left)
-
-
-def allocate_capital(
-    strategy_signals: pd.DataFrame,
-    total_cash: float,
-    caps: dict[str, float] | None = None,
-    *,
-    context: AllocationContext | None = None,
-) -> AllocationResult:
-    """兼容旧命名，转发到 score allocator。"""
-    return score_allocate_capital(strategy_signals, total_cash, caps, context=context)

@@ -1,6 +1,6 @@
 # Score Allocator
 
-`allocate_capital` 根据每个策略在最新一期信号中的 `score` 聚合结果分配资金。
+`score_allocate_capital` 根据每个策略在最新一期信号中的 `score` 聚合结果分配资金。
 
 ## 输入
 

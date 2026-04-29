@@ -14,7 +14,7 @@ def sharpe_signal(
     spread_quantile: float = 0.60,
     cap_quantile: float = 0.50,
 ) -> pd.DataFrame:
-    """生成受流动性和市值代理约束的 Sharpe 排序信号。"""
+    """生成受流动性和市值代理约束的 Sharpe 因子横截面分数。"""
     close = data.close.copy()
     daily_returns = close.pct_change()
     rolling_mean = daily_returns.rolling(data.lookback, min_periods=max(5, data.lookback // 2)).mean()
@@ -31,14 +31,12 @@ def sharpe_signal(
         adv_row = adv.loc[date].reindex(sharpe_row.index) if adv is not None else pd.Series(np.nan, index=sharpe_row.index)
         cap_row = cap_proxy.loc[date].reindex(sharpe_row.index)
         spread_row = spread_proxy.loc[date].reindex(sharpe_row.index)
-        filtered = sharpe_row[
+        eligible = sharpe_row[
             (adv_row >= adv_row.quantile(adv_quantile))
             & (cap_row >= cap_row.quantile(cap_quantile))
             & (spread_row <= spread_row.quantile(spread_quantile))
         ]
-        chosen = filtered.head(data.top_n)
-        if chosen.empty:
-            chosen = sharpe_row.head(data.top_n)
+        chosen = eligible if not eligible.empty else sharpe_row
         for rank, (symbol, score) in enumerate(chosen.items(), start=1):
             rows.append(
                 {
@@ -46,7 +44,6 @@ def sharpe_signal(
                     "symbol": symbol,
                     "rank": rank,
                     "score": float(score),
-                    "weight": 1.0 / len(chosen),
                     "volatility": float(rolling_vol.loc[date].get(symbol, np.nan)),
                     "adv": float(adv_row.get(symbol, np.nan)),
                     "cap_proxy": float(cap_row.get(symbol, np.nan)),

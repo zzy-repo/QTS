@@ -13,4 +13,4 @@ class StrategyAdapter:
     """描述一个可注册的策略构建器。"""
 
     name: str
-    build: Callable[[str, int, int], Callable[[StrategyInput], pd.DataFrame]]
+    build: Callable[[list[str], dict[str, float], int, int], Callable[[StrategyInput], pd.DataFrame]]
