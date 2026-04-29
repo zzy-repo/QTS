@@ -8,6 +8,7 @@ from ..core.analysis import equal_weight_benchmark, performance_summary_from_pnl
 from ..core.data.models import MarketPanel
 from ..core.execution.engine import Executor
 from ..core.optimize.engine import Optimizer
+from ..core.portfolio.engine_allocator import Allocator
 from ..core.portfolio.engine import PortfolioManager
 from ..core.portfolio.results import SystemRunResult, daily_pnl_view
 from ..core.signal.engine import SignalGenerator
@@ -19,6 +20,7 @@ class SystemPipeline:
     """编排信号、优化、执行和组合管理。"""
 
     signal_generator: SignalGenerator
+    allocator: Allocator
     optimizer: Optimizer
     executor: Executor
     portfolio_manager: PortfolioManager
@@ -30,6 +32,7 @@ class SystemPipeline:
             strategies=self.signal_generator.strategies,
             strategy_signals=strategy_signals,
             market=market,
+            allocator=self.allocator,
             optimizer=self.optimizer,
             executor=self.executor,
         )
@@ -46,6 +49,7 @@ class MultiDecisionSystem:
     """系统级门面，负责装配并运行管线。"""
 
     strategies: list[StrategySpec]
+    allocation_mode: str = "score"
     optimizer_mode: str = "score"
     execution_mode: str = "backtest"
     initial_cash: float = 1_000_000.0
@@ -62,6 +66,7 @@ class MultiDecisionSystem:
         """构建当前系统配置对应的流水线。"""
         return SystemPipeline(
             signal_generator=SignalGenerator(strategies=self.strategies),
+            allocator=Allocator(mode=self.allocation_mode),
             optimizer=Optimizer(mode=self.optimizer_mode, capped_cap=self.optimizer_cap),
             executor=Executor(
                 mode=self.execution_mode,

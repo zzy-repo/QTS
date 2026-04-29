@@ -7,7 +7,7 @@ import pandas as pd
 
 from ..data.models import ExecutionRun, MarketPanel
 from ..signal.specs import StrategySpec
-from .allocation import allocate_capital
+from .allocators.base import AllocationResult
 from .results import StrategyRunResult, SystemRunResult, daily_pnl_view, rolling_annualized_return
 
 
@@ -28,6 +28,18 @@ class _ExecutorLike(Protocol):
         initial_cash: float = 1_000_000.0,
         lot_size: int = 100,
     ) -> ExecutionRun: ...
+
+
+class _AllocatorLike(Protocol):
+    mode: str
+
+    def allocate(
+        self,
+        strategy_signals: pd.DataFrame,
+        *,
+        total_cash: float,
+        caps: dict[str, float] | None = None,
+    ) -> AllocationResult: ...
 
 
 def _strategy_signals_for(strategy_signals: pd.DataFrame, strategy_name: str) -> pd.DataFrame:
@@ -133,11 +145,12 @@ class PortfolioManager:
         strategies: list[StrategySpec],
         strategy_signals: pd.DataFrame,
         market: MarketPanel,
+        allocator: _AllocatorLike,
         optimizer: _OptimizerLike,
         executor: _ExecutorLike,
     ) -> SystemRunResult:
         """生成完整系统运行结果。"""
-        allocation = allocate_capital(strategy_signals, total_cash=self.initial_cash, caps=self.capital_caps)
+        allocation = allocator.allocate(strategy_signals, total_cash=self.initial_cash, caps=self.capital_caps)
         alloc_map = allocation.allocation.set_index("strategy")["allocated_cash"].to_dict() if not allocation.allocation.empty else {}
 
         strategy_runs: list[StrategyRunResult] = []
@@ -168,6 +181,7 @@ class PortfolioManager:
 
         snapshot = {
             "strategy_names": [spec.name for spec in strategies],
+            "allocation_mode": allocator.mode,
             "optimizer_mode": optimizer.mode,
             "execution_mode": executor.mode,
             "initial_cash": self.initial_cash,

@@ -14,6 +14,7 @@ from .config import (
 from .models import QTSConfig
 from .reporter import summarize_system_run
 
+_ALLOCATION_LABELS = {"score": "打分"}
 _OPTIMIZER_LABELS = {"score": "打分", "equal": "等权", "inv_vol": "逆波动率", "blend": "混合", "capped": "截断"}
 _EXECUTION_LABELS = {"backtest": "回测", "sim": "模拟", "paper": "纸面"}
 
@@ -47,6 +48,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--初始资金", "--initial-cash", dest="initial_cash", type=float, default=None, help="覆盖初始资金")
     parser.add_argument("--手数", "--lot-size", dest="lot_size", type=int, default=None, help="覆盖最小交易单位")
+    parser.add_argument("--分配器", "--allocator", dest="allocation_mode", default=None, help="覆盖分配器模式")
     parser.add_argument("--优化器", "--optimizer", dest="optimizer_mode", default=None, help="覆盖优化器模式")
     parser.add_argument("--执行器", "--executor", dest="execution_mode", default=None, help="覆盖执行器模式")
     return parser
@@ -56,6 +58,7 @@ def _print_run_summary(system, result, summary) -> None:
     """打印系统运行摘要。"""
     print("QTS 多决策系统演示")
     print(
+        f"分配模式={_ALLOCATION_LABELS.get(system.allocation_mode, system.allocation_mode)} "
         f"执行模式={_EXECUTION_LABELS.get(system.execution_mode, system.execution_mode)} "
         f"优化模式={_OPTIMIZER_LABELS.get(system.optimizer_mode, system.optimizer_mode)}"
     )
@@ -86,6 +89,7 @@ def run_cli(argv: Sequence[str] | None = None) -> None:
         symbols=args.symbols,
         initial_cash=args.initial_cash,
         lot_size=args.lot_size,
+        allocation_mode=args.allocation_mode,
         optimizer_mode=args.optimizer_mode,
         execution_mode=args.execution_mode,
     )

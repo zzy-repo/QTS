@@ -22,6 +22,11 @@ STRATEGY_KIND_ALIASES = {
     "夏普": "sharpe",
 }
 
+ALLOCATION_MODE_ALIASES = {
+    "score": "score",
+    "打分": "score",
+}
+
 OPTIMIZER_MODE_ALIASES = {
     "score": "score",
     "打分": "score",
@@ -134,6 +139,7 @@ def _build_system_config(payload: dict[str, object]) -> SystemConfig:
     """从原始配置中解析系统配置。"""
     system_raw = _pick(payload, "系统", "system", default={}) or {}
     return SystemConfig(
+        allocation_mode=_alias(ALLOCATION_MODE_ALIASES, _pick(system_raw, "分配器", "allocation_mode", default="score"), "score"),
         optimizer_mode=_alias(OPTIMIZER_MODE_ALIASES, _pick(system_raw, "优化器", "optimizer_mode", default="score"), "score"),
         execution_mode=_alias(EXECUTION_MODE_ALIASES, _pick(system_raw, "执行器", "execution_mode", default="backtest"), "backtest"),
         initial_cash=float(_pick(system_raw, "初始资金", "initial_cash", default=1_000_000.0)),
@@ -174,6 +180,7 @@ def default_qts_config() -> QTSConfig:
             end_date=DEFAULT_END_DATE,
         ),
         system=SystemConfig(
+            allocation_mode="score",
             optimizer_mode="score",
             execution_mode="backtest",
             initial_cash=1_000_000.0,
@@ -239,6 +246,7 @@ def build_system_from_config(config: QTSConfig):
 
     return MultiDecisionSystem(
         strategies=build_strategies_from_config(config),
+        allocation_mode=config.system.allocation_mode,
         optimizer_mode=config.system.optimizer_mode,
         execution_mode=config.system.execution_mode,
         initial_cash=config.system.initial_cash,
@@ -271,6 +279,7 @@ def apply_overrides(
     symbols: list[str] | None = None,
     initial_cash: float | None = None,
     lot_size: int | None = None,
+    allocation_mode: str | None = None,
     optimizer_mode: str | None = None,
     execution_mode: str | None = None,
 ) -> QTSConfig:
@@ -287,6 +296,8 @@ def apply_overrides(
         system = replace(system, initial_cash=float(initial_cash))
     if lot_size is not None:
         system = replace(system, lot_size=int(lot_size))
+    if allocation_mode is not None:
+        system = replace(system, allocation_mode=_alias(ALLOCATION_MODE_ALIASES, allocation_mode, system.allocation_mode))
     if optimizer_mode is not None:
         system = replace(system, optimizer_mode=_alias(OPTIMIZER_MODE_ALIASES, optimizer_mode, system.optimizer_mode))
     if execution_mode is not None:
