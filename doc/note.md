@@ -1,0 +1,1 @@
+data -> factor -> strategy -> allocator -> optimize -> execution
