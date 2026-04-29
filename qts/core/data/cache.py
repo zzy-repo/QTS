@@ -10,7 +10,7 @@ import pandas as pd
 _CACHE_ENV_VAR = "QTS_MARKET_CACHE_DIR"
 _CACHE_SUBDIR = ".cache/qts-market"
 _STATE_FILENAME = "state.json"
-CACHE_COLUMNS = ["date", "symbol", "close", "volume", "amount"]
+CACHE_COLUMNS = ["date", "symbol", "close", "volume", "amount", "provider"]
 
 
 def default_cache_root() -> Path:
@@ -67,6 +67,10 @@ def ensure_history_frame(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
         else:
             frame[column] = pd.NA
+    if "provider" in frame.columns:
+        frame["provider"] = frame["provider"].fillna("unknown").astype(str)
+    else:
+        frame["provider"] = str(df.attrs.get("provider", "legacy"))
     frame = frame[CACHE_COLUMNS].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
     return frame
 
@@ -132,7 +136,9 @@ def missing_ranges(
         if prefix_end >= requested_start:
             ranges.append((requested_start, prefix_end))
     if requested_end > cached_end:
-        ranges.append((cached_end, requested_end))
+        suffix_start = cached_end + pd.Timedelta(days=1)
+        if suffix_start <= requested_end:
+            ranges.append((suffix_start, requested_end))
     return ranges
 
 
@@ -145,6 +151,7 @@ def merge_history_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
     merged["close"] = pd.to_numeric(merged["close"], errors="coerce")
     merged["volume"] = pd.to_numeric(merged["volume"], errors="coerce")
     merged["amount"] = pd.to_numeric(merged["amount"], errors="coerce")
+    merged["provider"] = merged["provider"].fillna("unknown").astype(str) if "provider" in merged.columns else "legacy"
     merged = (
         merged.sort_values("date", kind="mergesort")
         .drop_duplicates(subset=["date"], keep="last")

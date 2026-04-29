@@ -288,7 +288,7 @@ def apply_overrides(
     if lot_size is not None:
         system = replace(system, lot_size=int(lot_size))
     if optimizer_mode is not None:
-        system = replace(system, optimizer_mode=optimizer_mode)
+        system = replace(system, optimizer_mode=_alias(OPTIMIZER_MODE_ALIASES, optimizer_mode, system.optimizer_mode))
     if execution_mode is not None:
-        system = replace(system, execution_mode=execution_mode)
+        system = replace(system, execution_mode=_alias(EXECUTION_MODE_ALIASES, execution_mode, system.execution_mode))
     return replace(config, market=market, system=system)

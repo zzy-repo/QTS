@@ -169,7 +169,8 @@ def _fetch_tx_daily_history(symbol: str, start_date: str, end_date: str) -> pd.D
     df["high"] = pd.to_numeric(df["high"], errors="coerce")
     df["low"] = pd.to_numeric(df["low"], errors="coerce")
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
-    df["volume"] = pd.to_numeric(df["amount"], errors="coerce")
+    # 腾讯历史接口该字段表示成交量(手)，转换为股数后再推导成交额。
+    df["volume"] = pd.to_numeric(df["amount"], errors="coerce") * 100.0
     df["amount"] = df["close"] * df["volume"]
     for column in ["amplitude", "pct_change", "change", "turnover"]:
         df[column] = pd.NA
@@ -183,7 +184,7 @@ def fetch_daily_history(symbol: str, start_date: str, end_date: str) -> pd.DataF
     """获取单标的历史日线，优先东财，失败时回退腾讯。"""
     try:
         return _fetch_eastmoney_daily_history(symbol, start_date, end_date)
-    except (requests.RequestException, MarketDataUnavailableError, KeyError, TypeError, ValueError) as exc:
+    except (requests.RequestException, MarketDataUnavailableError, ValueError, KeyError, TypeError) as exc:
         logger.warning(
             "东方财富历史行情拉取失败，回退腾讯行情 标的={} 开始={} 结束={} 异常类型={} 异常={}",
             symbol,
@@ -373,6 +374,7 @@ def sync_symbol_history(
     symbols_state[symbol] = {
         "cache_path": str(cache_path),
         "rows": int(len(merged_cache)),
+        "providers": sorted({str(value) for value in merged_cache["provider"].dropna().unique().tolist()}) if "provider" in merged_cache.columns else [],
         "requested_start": format_date(requested_start),
         "requested_end": format_date(requested_end),
         "cache_start": format_date(cached_start) if cached_start is not None else None,

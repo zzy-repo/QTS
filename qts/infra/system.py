@@ -9,7 +9,7 @@ from ..core.data.models import MarketPanel
 from ..core.execution.engine import Executor
 from ..core.optimize.engine import Optimizer
 from ..core.portfolio.engine import PortfolioManager
-from ..core.portfolio.results import SystemRunResult
+from ..core.portfolio.results import SystemRunResult, daily_pnl_view
 from ..core.signal.engine import SignalGenerator
 from ..core.signal.specs import StrategySpec
 
@@ -34,7 +34,7 @@ class SystemPipeline:
             executor=self.executor,
         )
         benchmark = equal_weight_benchmark(market.close) if not market.close.empty else None
-        performance = performance_summary_from_pnl(result.aggregate_pnl, benchmark=benchmark, turnover_column="allocation_weight")
+        performance = performance_summary_from_pnl(daily_pnl_view(result.aggregate_pnl), benchmark=benchmark)
         snapshot = dict(result.snapshot)
         if not performance.empty:
             snapshot["performance"] = performance.iloc[0].to_dict()

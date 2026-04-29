@@ -54,6 +54,30 @@ def final_annualized_return(frame: pd.DataFrame, trading_days_per_year: int = TR
     return float("nan")
 
 
+def daily_pnl_view(frame: pd.DataFrame) -> pd.DataFrame:
+    """把可能包含多 signal_date 的收益表压成按收益实现日唯一的一行。"""
+    if frame.empty or "date" not in frame.columns:
+        return frame.copy()
+    daily = frame.copy()
+    if "date" in daily.columns:
+        daily["date"] = pd.to_datetime(daily["date"], format="mixed")
+    aggregations: dict[str, str] = {}
+    if "gross_return" in daily.columns:
+        aggregations["gross_return"] = "sum"
+    for column in ["equity", "cum_return", "annualized_return", "cash_weight", "cash_left"]:
+        if column in daily.columns:
+            aggregations[column] = "last"
+    if "turnover" in daily.columns:
+        aggregations["turnover"] = "sum"
+    if "signal_date" in daily.columns:
+        aggregations["signal_date"] = "last"
+    if "allocation_weight" in daily.columns:
+        aggregations["allocation_weight"] = "last"
+    if not aggregations:
+        return daily.drop_duplicates(subset=["date"]).sort_values("date").reset_index(drop=True)
+    return daily.groupby("date", as_index=False).agg(aggregations).sort_values("date").reset_index(drop=True)
+
+
 @dataclass(frozen=True)
 class StrategyRunResult:
     """保存单个策略运行后的结果。"""

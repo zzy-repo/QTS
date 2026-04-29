@@ -8,7 +8,7 @@ import pandas as pd
 from ..data.models import ExecutionRun, MarketPanel
 from ..signal.specs import StrategySpec
 from .allocation import allocate_capital
-from .results import StrategyRunResult, SystemRunResult, rolling_annualized_return
+from .results import StrategyRunResult, SystemRunResult, daily_pnl_view, rolling_annualized_return
 
 
 class _OptimizerLike(Protocol):
@@ -44,6 +44,15 @@ def _strategy_target(optimized: pd.DataFrame) -> pd.DataFrame:
     return optimized[["date", "symbol", "weight"]]
 
 
+def _empty_execution_run() -> ExecutionRun:
+    """为零资金或空目标策略构造空执行结果。"""
+    return ExecutionRun(
+        orders=pd.DataFrame(),
+        holdings=pd.DataFrame(),
+        pnl=pd.DataFrame(),
+    )
+
+
 def _execution_pnl_frame(execution: ExecutionRun, strategy_name: str, allocation_cash: float, initial_cash: float) -> pd.DataFrame | None:
     """把单策略执行结果整理成可聚合的收益表。"""
     if execution.pnl.empty:
@@ -54,33 +63,59 @@ def _execution_pnl_frame(execution: ExecutionRun, strategy_name: str, allocation
     return frame
 
 
-def _aggregate_portfolio_frames(pnl_frames: list[pd.DataFrame], initial_cash: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _aggregate_portfolio_frames(
+    pnl_frames: list[pd.DataFrame],
+    initial_cash: float,
+    cash_left: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """聚合各策略收益并生成组合权益曲线。"""
     if not pnl_frames:
         aggregate_pnl = pd.DataFrame(
-            columns=["date", "signal_date", "gross_return", "allocation_weight", "equity", "cum_return", "annualized_return"]
+            columns=[
+                "date",
+                "signal_date",
+                "gross_return",
+                "allocation_weight",
+                "cash_weight",
+                "cash_left",
+                "equity",
+                "cum_return",
+                "annualized_return",
+            ]
         )
         aggregate_equity = pd.DataFrame(columns=["date", "equity"])
         return aggregate_pnl, aggregate_equity
 
     combined = pd.concat(pnl_frames, ignore_index=True)
+    combined["date"] = pd.to_datetime(combined["date"], format="mixed")
+    combined["signal_date"] = pd.to_datetime(combined["signal_date"], format="mixed")
     combined["weighted_return"] = combined["gross_return"] * combined["allocation_weight"]
-    aggregate_pnl = combined.groupby("date", as_index=False).agg(
+    aggregate_pnl = combined.groupby(["date", "signal_date"], as_index=False).agg(
         gross_return=("weighted_return", "sum"),
         allocation_weight=("allocation_weight", "sum"),
-        signal_date=("signal_date", "first"),
     )
-    aggregate_pnl = aggregate_pnl.sort_values("date").reset_index(drop=True)
+    aggregate_pnl = aggregate_pnl.sort_values(["date", "signal_date"]).reset_index(drop=True)
+    aggregate_pnl["cash_weight"] = cash_left / initial_cash if initial_cash else 0.0
+    aggregate_pnl["cash_left"] = cash_left
 
+    daily_returns = daily_pnl_view(aggregate_pnl[["date", "signal_date", "gross_return", "cash_weight", "cash_left"]])
     equity_value = 1.0
-    equity_rows: list[dict[str, object]] = []
-    for _, row in aggregate_pnl.iterrows():
+    daily_equity_rows: list[dict[str, object]] = []
+    for _, row in daily_returns.iterrows():
         equity_value *= 1.0 + float(row["gross_return"])
-        equity_rows.append({"date": row["date"], "equity": equity_value * initial_cash})
-    aggregate_equity = pd.DataFrame(equity_rows)
-    aggregate_pnl["equity"] = aggregate_equity["equity"].values
-    aggregate_pnl["cum_return"] = aggregate_pnl["equity"] / float(initial_cash) - 1.0
-    aggregate_pnl["annualized_return"] = rolling_annualized_return(aggregate_pnl["cum_return"])
+        daily_equity_rows.append({"date": row["date"], "equity": equity_value * initial_cash})
+    aggregate_equity = pd.DataFrame(daily_equity_rows)
+    daily_metrics = daily_returns.merge(aggregate_equity, on="date", how="left")
+    daily_metrics["cum_return"] = daily_metrics["equity"] / float(initial_cash) - 1.0
+    daily_metrics["annualized_return"] = rolling_annualized_return(daily_metrics["cum_return"])
+    aggregate_pnl = aggregate_pnl.merge(
+        daily_metrics[["date", "equity", "cum_return", "annualized_return"]],
+        on="date",
+        how="left",
+    )
+    aggregate_pnl["date"] = aggregate_pnl["date"].dt.strftime("%Y-%m-%d")
+    aggregate_pnl["signal_date"] = aggregate_pnl["signal_date"].map(lambda value: value.strftime("%Y-%m-%d %H:%M:%S") if value.time() != pd.Timestamp(value.date()).time() else value.strftime("%Y-%m-%d"))
+    aggregate_equity["date"] = pd.to_datetime(aggregate_equity["date"], format="mixed").dt.strftime("%Y-%m-%d")
     return aggregate_pnl, aggregate_equity
 
 
@@ -112,7 +147,10 @@ class PortfolioManager:
             optimized = optimizer.optimize(signals)
             target = _strategy_target(optimized)
             allocation_cash = float(alloc_map.get(spec.name, 0.0))
-            execution = executor.execute(target, market, initial_cash=self.initial_cash, lot_size=self.lot_size)
+            if allocation_cash <= 0.0 or target.empty:
+                execution = _empty_execution_run()
+            else:
+                execution = executor.execute(target, market, initial_cash=allocation_cash, lot_size=self.lot_size)
             strategy_runs.append(
                 StrategyRunResult(
                     name=spec.name,
@@ -126,13 +164,15 @@ class PortfolioManager:
             if pnl_frame is not None:
                 pnl_frames.append(pnl_frame)
 
-        aggregate_pnl, aggregate_equity = _aggregate_portfolio_frames(pnl_frames, self.initial_cash)
+        aggregate_pnl, aggregate_equity = _aggregate_portfolio_frames(pnl_frames, self.initial_cash, allocation.cash_left)
 
         snapshot = {
             "strategy_names": [spec.name for spec in strategies],
             "optimizer_mode": optimizer.mode,
             "execution_mode": executor.mode,
             "initial_cash": self.initial_cash,
+            "allocated_cash": float(allocation.allocation["allocated_cash"].sum()) if not allocation.allocation.empty else 0.0,
+            "cash_left": float(allocation.cash_left),
             "lot_size": self.lot_size,
             "allocation_rows": len(allocation.allocation),
         }

@@ -7,11 +7,13 @@ from loguru import logger
 
 
 _CONFIGURED = False
+_STDERR_HANDLER_ID: int | None = None
+_FILE_HANDLER_ID: int | None = None
 
 
 def configure_logging(run_name: str, artifact_dir: Path) -> Path:
     """配置终端和文件日志输出。"""
-    global _CONFIGURED
+    global _CONFIGURED, _STDERR_HANDLER_ID, _FILE_HANDLER_ID
 
     log_dir = artifact_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -19,7 +21,7 @@ def configure_logging(run_name: str, artifact_dir: Path) -> Path:
 
     if not _CONFIGURED:
         logger.remove()
-        logger.add(
+        _STDERR_HANDLER_ID = logger.add(
             sys.stderr,
             level="INFO",
             enqueue=False,
@@ -29,7 +31,10 @@ def configure_logging(run_name: str, artifact_dir: Path) -> Path:
         )
         _CONFIGURED = True
 
-    logger.add(
+    if _FILE_HANDLER_ID is not None:
+        logger.remove(_FILE_HANDLER_ID)
+
+    _FILE_HANDLER_ID = logger.add(
         log_path,
         level="DEBUG",
         enqueue=False,

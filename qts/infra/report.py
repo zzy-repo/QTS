@@ -8,13 +8,21 @@ SIGNAL_COLUMNS = ["date", "symbol", "rank", "score", "weight"]
 ReportKind = Literal["backtest", "close", "selection"]
 
 
+def _format_signal_date(value: object) -> str:
+    """保留时间粒度格式化信号时间。"""
+    ts = pd.Timestamp(value)
+    if ts.time() == pd.Timestamp(ts.date()).time():
+        return ts.strftime("%Y-%m-%d")
+    return ts.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def normalize_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
     """标准化信号字段。"""
     normalized = frame.copy()
     for column in SIGNAL_COLUMNS:
         if column not in normalized.columns:
             normalized[column] = pd.NA
-    normalized["date"] = pd.to_datetime(normalized["date"]).dt.strftime("%Y-%m-%d")
+    normalized["date"] = pd.to_datetime(normalized["date"], format="mixed").map(_format_signal_date)
     normalized["symbol"] = normalized["symbol"].astype(str)
     normalized["rank"] = pd.to_numeric(normalized["rank"], errors="coerce").astype("Int64")
     normalized["score"] = pd.to_numeric(normalized["score"], errors="coerce")
@@ -28,8 +36,9 @@ def latest_signal_frame(frame: pd.DataFrame) -> pd.DataFrame:
     normalized = normalize_signal_frame(frame)
     if normalized.empty:
         return normalized
-    latest_date = normalized["date"].max()
-    return normalized[normalized["date"].eq(latest_date)].copy().reset_index(drop=True)
+    dated = pd.to_datetime(normalized["date"], format="mixed")
+    latest_day = dated.dt.normalize().max()
+    return normalized[dated.dt.normalize().eq(latest_day)].copy().reset_index(drop=True)
 
 
 def build_report(frame: pd.DataFrame, kind: ReportKind) -> pd.DataFrame:
@@ -70,30 +79,38 @@ def _build_backtest_report(frame: pd.DataFrame) -> pd.DataFrame:
         avg_weight=("weight", "mean"),
     )
     if "signal_date" in normalized.columns:
-        daily["signal_date"] = normalized.groupby("date")["signal_date"].first().to_numpy()
+        signal_dates = normalized.groupby("date")["signal_date"].agg(
+            lambda values: " | ".join(dict.fromkeys(str(value) for value in values if pd.notna(value)))
+        )
+        daily["signal_date"] = signal_dates.reindex(daily["date"]).to_numpy()
     else:
         daily["signal_date"] = daily["date"]
     daily = daily.sort_values("date").reset_index(drop=True)
     if {"gross_return", "equity", "cum_return"}.issubset(normalized.columns):
-        enriched = normalized.groupby("date", as_index=False).agg(
-            gross_return=("gross_return", "first"),
-            equity=("equity", "first"),
-            cum_return=("cum_return", "first"),
+        metric_keys = ["date"]
+        if "signal_date" in normalized.columns:
+            metric_keys.append("signal_date")
+        metric_source = normalized[metric_keys + ["gross_return", "equity", "cum_return"]].drop_duplicates()
+        enriched = metric_source.groupby("date", as_index=False).agg(
+            gross_return=("gross_return", "sum"),
+            equity=("equity", "last"),
+            cum_return=("cum_return", "last"),
         )
         daily = daily.merge(enriched, on="date", how="left")
 
+    last_daily = daily.iloc[-1] if not daily.empty else None
     summary = pd.DataFrame(
         [
             {
                 "section": "summary",
                 "date": None,
                 "signal_date": None,
-                "signal_count": int(len(normalized)),
-                "avg_score": float(normalized["score"].mean()) if normalized["score"].notna().any() else None,
-                "avg_weight": float(normalized["weight"].mean()) if normalized["weight"].notna().any() else None,
-                "gross_return": float(normalized["gross_return"].dropna().iloc[-1]) if "gross_return" in normalized.columns and normalized["gross_return"].notna().any() else None,
-                "equity": float(normalized["equity"].dropna().iloc[-1]) if "equity" in normalized.columns and normalized["equity"].notna().any() else None,
-                "cum_return": float(normalized["cum_return"].dropna().iloc[-1]) if "cum_return" in normalized.columns and normalized["cum_return"].notna().any() else None,
+                "signal_count": int(daily["signal_count"].sum()) if not daily.empty else 0,
+                "avg_score": float(daily["avg_score"].mean()) if not daily.empty and daily["avg_score"].notna().any() else None,
+                "avg_weight": float(daily["avg_weight"].mean()) if not daily.empty and daily["avg_weight"].notna().any() else None,
+                "gross_return": float(last_daily["gross_return"]) if last_daily is not None and "gross_return" in daily.columns and pd.notna(last_daily.get("gross_return")) else None,
+                "equity": float(last_daily["equity"]) if last_daily is not None and "equity" in daily.columns and pd.notna(last_daily.get("equity")) else None,
+                "cum_return": float(last_daily["cum_return"]) if last_daily is not None and "cum_return" in daily.columns and pd.notna(last_daily.get("cum_return")) else None,
             }
         ]
     )

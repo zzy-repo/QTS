@@ -47,12 +47,14 @@ def _report_input_for_backtest(signals: pd.DataFrame, aggregate_pnl: pd.DataFram
     if aggregate_pnl.empty:
         return report_input
 
+    report_input["_report_ts"] = pd.to_datetime(report_input["date"], format="mixed")
     pnl = aggregate_pnl.copy()
-    pnl["date"] = pd.to_datetime(pnl["date"]).dt.strftime("%Y-%m-%d")
-    keep_columns = [column for column in ["date", "gross_return", "equity", "cum_return"] if column in pnl.columns]
+    report_key = "signal_date" if "signal_date" in pnl.columns else "date"
+    pnl["_report_ts"] = pd.to_datetime(pnl[report_key], format="mixed")
+    keep_columns = [column for column in ["_report_ts", "gross_return", "equity", "cum_return"] if column in pnl.columns]
     if keep_columns:
-        report_input = report_input.merge(pnl[keep_columns], on="date", how="left")
-    return report_input
+        report_input = report_input.merge(pnl[keep_columns], on="_report_ts", how="left")
+    return report_input.drop(columns="_report_ts")
 
 
 def _build_report_input(signals: pd.DataFrame, *, report_kind: str, aggregate_pnl: pd.DataFrame) -> pd.DataFrame:
