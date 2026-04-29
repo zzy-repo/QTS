@@ -14,7 +14,7 @@ def run_close_report_script() -> None:
     artifact_dir = ROOT / "artifacts" / "close_report"
     log_path = configure_logging("close_report", artifact_dir)
     logger.info("收盘决策脚本启动 输出目录={} 日志路径={}", artifact_dir, log_path)
-    run = run_close_report_entry(cache_root=artifact_dir / "cache")
+    run = run_close_report_entry()
     save_frame(run.signals, artifact_dir / "signals.csv")
     save_frame(run.report, artifact_dir / "report.csv")
     save_text(

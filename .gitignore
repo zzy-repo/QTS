@@ -22,3 +22,5 @@ artifacts/
 # Generated lab outputs
 lab/**/__pycache__/
 lab/**/artifacts/
+
+*.cache/

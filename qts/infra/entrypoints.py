@@ -6,11 +6,11 @@ import pandas as pd
 from loguru import logger
 
 from ..core.data.data_source import describe_source_mode
+from ..paths import REPO_ROOT
 from .config import QTSConfig, build_system_from_config, load_market_from_config, load_qts_config
 from .models import EntryRun
 from .report import build_report, latest_signal_frame, normalize_signal_frame
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO_ROOT / "configs"
 DEFAULT_BACKTEST_CONFIG = CONFIG_DIR / "backtest.json"
 DEFAULT_CLOSE_REPORT_CONFIG = CONFIG_DIR / "close_report.json"

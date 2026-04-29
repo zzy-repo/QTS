@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from ...paths import REPO_ROOT
+
 _CACHE_ENV_VAR = "QTS_MARKET_CACHE_DIR"
 _CACHE_SUBDIR = ".cache/qts-market"
 _STATE_FILENAME = "state.json"
@@ -18,7 +20,7 @@ def default_cache_root() -> Path:
     override = os.getenv(_CACHE_ENV_VAR)
     if override:
         return Path(override).expanduser()
-    return Path(__file__).resolve().parents[1] / _CACHE_SUBDIR
+    return REPO_ROOT / _CACHE_SUBDIR
 
 
 def state_path(cache_root: Path) -> Path:

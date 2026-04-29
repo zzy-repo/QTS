@@ -14,7 +14,7 @@ def run_backtest_script() -> None:
     artifact_dir = ROOT / "artifacts" / "backtest"
     log_path = configure_logging("backtest", artifact_dir)
     logger.info("回测脚本启动 输出目录={} 日志路径={}", artifact_dir, log_path)
-    run = run_backtest_entry(cache_root=artifact_dir / "cache")
+    run = run_backtest_entry()
     save_frame(run.signals, artifact_dir / "signals.csv")
     save_frame(run.result.aggregate_pnl, artifact_dir / "pnl.csv")
     save_frame(run.report, artifact_dir / "report.csv")

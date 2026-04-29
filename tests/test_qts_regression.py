@@ -10,6 +10,7 @@ from qts.core.data.models import MarketPanel
 from qts.core.data import data_source as data_source_module
 from qts.core.data import cache as cache_module
 from qts.core.data.models import ExecutionRun
+from qts.paths import REPO_ROOT
 from qts.core.portfolio.engine import PortfolioManager
 from qts.core.portfolio.allocation import allocate_capital
 from qts.core.portfolio.results import annualized_return, daily_pnl_view
@@ -66,8 +67,11 @@ def test_system_builds_and_runs_on_synthetic_market() -> None:
 
 
 def test_default_backtest_config_points_to_repo_root() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    assert DEFAULT_BACKTEST_CONFIG == repo_root / "configs" / "backtest.json"
+    assert DEFAULT_BACKTEST_CONFIG == REPO_ROOT / "configs" / "backtest.json"
+
+
+def test_default_market_cache_root_points_to_repo_root() -> None:
+    assert cache_module.default_cache_root() == REPO_ROOT / ".cache" / "qts-market"
 
 
 def test_entrypoints_use_latest_signals(monkeypatch) -> None:
@@ -75,7 +79,13 @@ def test_entrypoints_use_latest_signals(monkeypatch) -> None:
 
     from qts.infra import entrypoints as entrypoints_module
 
-    monkeypatch.setattr(entrypoints_module, "load_market_from_config", lambda config, cache_root=None: market)
+    seen_cache_roots: list[Path | None] = []
+
+    def fake_load_market_from_config(config, cache_root=None):
+        seen_cache_roots.append(cache_root)
+        return market
+
+    monkeypatch.setattr(entrypoints_module, "load_market_from_config", fake_load_market_from_config)
 
     backtest_run = run_backtest_entry()
     close_run = run_close_report_entry()
@@ -90,6 +100,7 @@ def test_entrypoints_use_latest_signals(monkeypatch) -> None:
     assert stock_run.signals["date"].nunique() == 1
     assert "decision" in close_run.report.columns
     assert "selected" in stock_run.report.columns
+    assert seen_cache_roots == [None, None, None]
 
 
 def test_sharpe_strategy_and_blend_optimizer_run_on_synthetic_market() -> None:

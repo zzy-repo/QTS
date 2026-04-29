@@ -40,4 +40,6 @@
 .venv/bin/python -m qts.cli --write-default-config configs/qts.config.json
 ```
 
-行情数据默认会缓存到 `.cache/qts-market/`，可通过 `QTS_MARKET_CACHE_DIR` 覆盖。
+行情数据默认会缓存到 `.cache/qts-market/`，供不同正式入口共享复用；可通过 `QTS_MARKET_CACHE_DIR` 覆盖。
+
+`artifacts/backtest/`、`artifacts/close_report/`、`artifacts/stock_selection/` 仅保存各入口自己的结果、日志和摘要，不再承载行情缓存。

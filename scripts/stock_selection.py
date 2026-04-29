@@ -14,7 +14,7 @@ def run_stock_selection_script() -> None:
     artifact_dir = ROOT / "artifacts" / "stock_selection"
     log_path = configure_logging("stock_selection", artifact_dir)
     logger.info("选股脚本启动 输出目录={} 日志路径={}", artifact_dir, log_path)
-    run = run_stock_selection_entry(cache_root=artifact_dir / "cache")
+    run = run_stock_selection_entry()
     save_frame(run.signals, artifact_dir / "signals.csv")
     save_frame(run.report, artifact_dir / "report.csv")
     save_text(
