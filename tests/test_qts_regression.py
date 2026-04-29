@@ -572,7 +572,7 @@ def test_signal_generator_validates_strategy_output() -> None:
         generator.generate(_build_synthetic_market())
 
 
-def test_signal_generator_rejects_missing_score_and_rank() -> None:
+def test_signal_generator_rejects_legacy_signal_schema() -> None:
     generator = SignalGenerator(
         strategies=[
             StrategySpec(
@@ -582,11 +582,8 @@ def test_signal_generator_rejects_missing_score_and_rank() -> None:
         ]
     )
 
-    generated = generator.generate(_build_synthetic_market())
-
-    assert list(generated.columns) == ["date", "symbol", "weight", "score", "rank", "strategy"]
-    assert float(generated.iloc[0]["score"]) == 1.0
-    assert int(generated.iloc[0]["rank"]) == 1
+    with pytest.raises(ValueError, match="缺少字段：rank, score"):
+        generator.generate(_build_synthetic_market())
 
 
 def test_normalize_signal_frame_preserves_intraday_time_granularity() -> None:

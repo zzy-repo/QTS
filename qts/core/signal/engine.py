@@ -15,23 +15,6 @@ class SignalGenerator:
 
     strategies: list[StrategySpec]
 
-    @staticmethod
-    def _coerce_legacy_signal_schema(signals: pd.DataFrame) -> pd.DataFrame:
-        """兼容旧版最小信号输出 schema。"""
-        frame = signals.copy()
-        if "score" not in frame.columns and "weight" in frame.columns:
-            frame["score"] = pd.to_numeric(frame["weight"], errors="coerce")
-        if "rank" not in frame.columns and "date" in frame.columns:
-            ordered = frame.reset_index(drop=False).rename(columns={"index": "_legacy_order"})
-            ordered["date"] = pd.to_datetime(ordered["date"], format="mixed", errors="coerce")
-            ordered["rank"] = (
-                ordered.groupby("date", dropna=False)["_legacy_order"]
-                .rank(method="first")
-                .astype("Int64")
-            )
-            frame["rank"] = ordered["rank"].values
-        return frame
-
     def generate(self, market: MarketPanel) -> pd.DataFrame:
         """把市场数据转换为统一信号表。"""
         frames: list[pd.DataFrame] = []
@@ -43,7 +26,7 @@ class SignalGenerator:
                 lookback=spec.lookback,
                 top_n=spec.top_n,
             )
-            signals = self._coerce_legacy_signal_schema(spec.builder(data).copy())
+            signals = spec.builder(data).copy()
             if signals.empty:
                 continue
             issues = validate_strategy_output(signals)
