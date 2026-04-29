@@ -18,7 +18,7 @@ from qts.core.data.models import MarketPanel
 from qts.infra.config import build_system_from_config, load_qts_config
 from shared import ExperimentMeta, record_experiment
 
-BACKTEST_CONFIG = REPO_ROOT / "configs" / "backtest.json"
+BACKTEST_CONFIG = REPO_ROOT / "configs" / "backtest.yaml"
 
 EASTMONEY_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 
@@ -151,7 +151,7 @@ def main() -> None:
     )
 
     steps = [
-        "读取当前 `configs/backtest.json`，沿用真实的标的池和日期窗口做复现。",
+        "读取当前 `configs/backtest.yaml`，沿用真实的标的池和日期窗口做复现。",
         "直接请求东财历史接口，记录当前网络环境下的失败类型和请求参数。",
         "把同一组股票代码映射成腾讯市场前缀代码，调用 `ak.stock_zh_a_hist_tx` 下载历史日线。",
         "将腾讯日线整理成 `MarketPanel` 结构，并在 lab 中调用现有系统跑最小回测。",

@@ -5,53 +5,55 @@
 运行统一正式入口：
 
 ```bash
-.venv/bin/python main.py --config configs/close_report.json
+uv run python main.py --config-name close_report
 ```
 
 运行不同 profile：
 
 ```bash
-.venv/bin/python main.py --config configs/backtest.json
-.venv/bin/python main.py --config configs/close_report.json
-.venv/bin/python main.py --config configs/stock_selection.json
+uv run python main.py --config-name backtest
+uv run python main.py --config-name close_report
+uv run python main.py --config-name stock_selection
 ```
 
-使用中文配置文件：
+使用默认配置并通过 Hydra 覆盖字段：
 
 ```bash
-.venv/bin/python main.py --配置 configs/qts.config.json
+uv run python main.py market.start_date=20240115 runtime.summary_only=true
 ```
 
 三个入口各自也可使用独立配置：
 
-- `configs/backtest.json`
-- `configs/close_report.json`
-- `configs/stock_selection.json`
+- `configs/backtest.yaml`
+- `configs/close_report.yaml`
+- `configs/stock_selection.yaml`
 
-生成一份默认中文配置：
+生成一份默认 YAML 配置：
 
 ```bash
-.venv/bin/python main.py --write-default-config configs/qts.config.json
+uv run python main.py --write-default-config configs/qts.yaml
 ```
 
 约定：
 
 - `main.py` 是正式统一入口，负责 profile 化运行与产物落盘。
-- `main.py --summary-only` 用于临时调试摘要，不落正式产物。
+- `runtime.summary_only=true` 用于临时调试摘要，不落正式产物。
 
-策略配置统一使用 `因子列表`，可选 `因子权重`。单因子也写成单元素列表，例如：
+策略配置统一使用英文 YAML schema。示例：
 
-```json
-{
-  "名称": "core_blend",
-  "策略类型": "因子策略",
-  "因子列表": ["动量", "趋势", "夏普"],
-  "因子权重": {"动量": 0.4, "趋势": 0.3, "夏普": 0.3},
-  "回看周期": 20,
-  "选取数量": 3
-}
+```yaml
+strategies:
+  - name: core_blend
+    strategy_kind: factor
+    factor_kinds: [momentum, trend, sharpe]
+    factor_weights:
+      momentum: 0.4
+      trend: 0.3
+      sharpe: 0.3
+    lookback: 20
+    top_n: 3
 ```
 
 行情数据默认会缓存到 `.cache/qts-market/`，供不同正式入口共享复用；可通过 `QTS_MARKET_CACHE_DIR` 覆盖。
 
-各配置文件的 `入口` 段定义报表类型、输出目录和产物列表。`artifacts/backtest/`、`artifacts/close_report/`、`artifacts/stock_selection/`、`artifacts/qts/` 仅保存各 profile 的结果、日志和摘要，不再承载行情缓存。
+各配置文件的 `entry` 段定义报表类型、输出目录和产物列表。`artifacts/backtest/`、`artifacts/close_report/`、`artifacts/stock_selection/`、`artifacts/qts/` 仅保存各 profile 的结果、日志和摘要，不再承载行情缓存。

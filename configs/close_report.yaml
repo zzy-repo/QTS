@@ -1,0 +1,49 @@
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+
+entry:
+  name: close_report
+  report_kind: close
+  artifact_dir: artifacts/close_report
+  outputs:
+    - signals
+    - report
+    - run_summary
+
+market:
+  symbols:
+    - "000001"
+    - "000002"
+    - "600519"
+  start_date: "20250903"
+  end_date: "20260427"
+  allow_synthetic_fallback: false
+
+system:
+  allocation_mode: score
+  optimizer_mode: equal
+  execution_mode: paper
+  initial_cash: 200000.0
+  lot_size: 100
+  capital_caps:
+    trend_close: 0.6
+  optimizer_cap: 0.4
+  max_adv_pct: 0.01
+  slippage_base_bps: 1.0
+  slippage_participation_scale: 0.02
+  slippage_vol_scale: 0.1
+
+strategies:
+  - name: trend_close
+    strategy_kind: factor
+    factor_kinds: [trend]
+    lookback: 6
+    top_n: 2
+
+runtime:
+  summary_only: false
+  cache_root: null

@@ -16,7 +16,7 @@ from qts.core.data.data_source import load_market_panel
 from qts.infra.config import load_qts_config
 from shared import ExperimentMeta, record_experiment
 
-BACKTEST_CONFIG = REPO_ROOT / "configs" / "backtest.json"
+BACKTEST_CONFIG = REPO_ROOT / "configs" / "backtest.yaml"
 
 
 def _probe_default_config() -> dict[str, object]:
